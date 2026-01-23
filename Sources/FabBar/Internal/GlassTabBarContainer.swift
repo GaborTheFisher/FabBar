@@ -25,7 +25,7 @@ final class GlassTabBarContainer<Tab: Hashable>: UIView {
 
         // Create glass container effect for morphing
         let containerEffect = UIGlassContainerEffect()
-        containerEffect.spacing = 0
+        containerEffect.spacing = Constants.fabSpacing
         containerEffectView = UIVisualEffectView(effect: containerEffect)
 
         // Create segmented control glass effect
