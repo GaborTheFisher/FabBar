@@ -1,11 +1,14 @@
 import UIKit
 
 /// A UIView that displays a single tab item with an icon and title stacked vertically.
+/// Uses tintColor for both image and text to get automatic tintAdjustmentMode support.
 @available(iOS 26.0, *)
 final class TabItemLabelView<Tab: Hashable>: UIView {
-    private let imageView: UIImageView
-    private let titleLabel: UILabel
-    private var baseImage: UIImage?
+    private let contentView: TintedTabItemView
+
+    var activeTintColor: UIColor = .tintColor {
+        didSet { updateColors() }
+    }
 
     var inactiveTintColor: UIColor = .label {
         didSet { updateColors() }
@@ -14,8 +17,7 @@ final class TabItemLabelView<Tab: Hashable>: UIView {
     var isHighlighted: Bool = false
 
     init(tabItem: FabBarItem<Tab>) {
-        imageView = UIImageView()
-        titleLabel = UILabel()
+        contentView = TintedTabItemView()
 
         super.init(frame: .zero)
 
@@ -28,71 +30,54 @@ final class TabItemLabelView<Tab: Hashable>: UIView {
     }
 
     private func setupViews(tabItem: FabBarItem<Tab>) {
-        // Configure image view
+        // Configure image
         let config = UIImage.SymbolConfiguration(
             pointSize: Constants.tabIconPointSize,
             weight: .medium,
             scale: .large
         )
 
+        var image: UIImage?
         if let imageName = tabItem.image {
             let bundle = tabItem.imageBundle ?? .main
-            baseImage = UIImage(named: imageName, in: bundle, with: config)
-            if baseImage == nil {
+            image = UIImage(named: imageName, in: bundle, with: config)
+            if image == nil {
                 fabBarLogger.warning("Failed to load image '\(imageName)' from bundle for tab '\(tabItem.title)'")
             }
         } else if let systemImageName = tabItem.systemImage {
-            baseImage = UIImage(systemName: systemImageName, withConfiguration: config)
-            if baseImage == nil {
+            image = UIImage(systemName: systemImageName, withConfiguration: config)
+            if image == nil {
                 fabBarLogger.warning("Failed to load SF Symbol '\(systemImageName)' for tab '\(tabItem.title)'")
             }
         }
 
-        imageView.image = baseImage?.withRenderingMode(.alwaysTemplate)
-        imageView.contentMode = .center
-        imageView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.image = image
+        contentView.text = tabItem.title
+        contentView.font = .systemFont(ofSize: Constants.tabTitleFontSize, weight: .medium)
+        contentView.imageAreaHeight = Constants.iconViewSize
+        contentView.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.text = tabItem.title
-        titleLabel.font = .systemFont(ofSize: Constants.tabTitleFontSize, weight: .medium)
-        titleLabel.textAlignment = .center
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let stackView = UIStackView(arrangedSubviews: [imageView, titleLabel])
-        stackView.axis = .vertical
-        stackView.alignment = .center
-        stackView.spacing = 0
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(stackView)
+        addSubview(contentView)
 
         NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: Constants.iconViewSize),
-            imageView.heightAnchor.constraint(equalToConstant: Constants.iconViewSize),
-            stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentView.widthAnchor.constraint(equalTo: widthAnchor),
+            contentView.heightAnchor.constraint(equalToConstant: Constants.iconViewSize + Constants.tabTitleFontSize + 4),
         ])
 
         updateColors()
     }
 
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        updateColors()
-    }
-
     func updateColors(animated: Bool = false) {
-        // Use self.tintColor (inherited UIView property) for active state
-        // to leverage UIKit's tint color system directly
-        let color = isHighlighted ? tintColor : inactiveTintColor
+        let color = isHighlighted ? activeTintColor : inactiveTintColor
 
         if animated {
-            UIView.transition(with: imageView, duration: Constants.colorTransitionDuration, options: .transitionCrossDissolve) {
-                self.imageView.tintColor = color
-                self.titleLabel.textColor = color
+            UIView.animate(withDuration: Constants.colorTransitionDuration) {
+                self.tintColor = color
             }
         } else {
-            imageView.tintColor = color
-            titleLabel.textColor = color
+            tintColor = color
         }
     }
 }

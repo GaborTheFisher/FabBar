@@ -51,7 +51,6 @@ struct FabBarRepresentable<Tab: Hashable>: UIViewRepresentable {
             action: action
         )
 
-        // Set label colors
         container.labelsOverlay.inactiveTintColor = .label
 
         return container
@@ -70,6 +69,11 @@ struct FabBarRepresentable<Tab: Hashable>: UIViewRepresentable {
         // needs to know the final selection for when onHighlightEnd is called
         uiView.labelsOverlay.setSelectedIndex(newIndex, animated: false)
 
+        // Set accent color from the view's inherited tintColor, converted to concrete color
+        if let tint = uiView.tintColor {
+            let concreteAccentColor = UIColor(cgColor: tint.cgColor)
+            uiView.labelsOverlay.activeTintColor = concreteAccentColor
+        }
     }
 
     func sizeThatFits(_: ProposedViewSize, uiView _: GlassTabBarContainer<Tab>, context _: Context) -> CGSize? {

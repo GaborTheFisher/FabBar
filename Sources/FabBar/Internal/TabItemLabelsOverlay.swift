@@ -8,6 +8,13 @@ final class TabItemLabelsOverlay<Tab: Hashable>: UIView {
     private var selectedIndex: Int = 0
     private var highlightedIndex: Int?
 
+    var activeTintColor: UIColor = .tintColor {
+        didSet {
+            tabItemViews.forEach { $0.activeTintColor = activeTintColor }
+            updateHighlightStates()
+        }
+    }
+
     var inactiveTintColor: UIColor = .label {
         didSet {
             tabItemViews.forEach { $0.inactiveTintColor = inactiveTintColor }
@@ -38,6 +45,7 @@ final class TabItemLabelsOverlay<Tab: Hashable>: UIView {
 
         for tabItem in tabItems {
             let tabItemView = TabItemLabelView(tabItem: tabItem)
+            tabItemView.activeTintColor = activeTintColor
             tabItemView.inactiveTintColor = inactiveTintColor
             tabItemViews.append(tabItemView)
             stackView.addArrangedSubview(tabItemView)
