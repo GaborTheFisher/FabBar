@@ -8,10 +8,10 @@ import SwiftUI
 /// - Ignores bottom safe area for manual positioning
 /// - Hides automatically on regular horizontal size class (iPad)
 @available(iOS 26.0, *)
-struct FabBarModifier<Tab: Hashable>: ViewModifier {
-    @Binding var selection: Tab
-    let items: [FabBarItem<Tab>]
-    let action: FabAction
+struct FabBarModifier<Value: Hashable>: ViewModifier {
+    @Binding var selection: Value
+    let tabs: [FabBarTab<Value>]
+    let action: FabBarAction
     let isVisible: Bool
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -20,7 +20,7 @@ struct FabBarModifier<Tab: Hashable>: ViewModifier {
         content
             .safeAreaBar(edge: .bottom) {
                 if horizontalSizeClass == .compact && isVisible {
-                    FabBar(selection: $selection, items: items, action: action)
+                    FabBar(selection: $selection, tabs: tabs, action: action)
                         .padding(.horizontal, Constants.horizontalPadding)
                         .padding(.bottom, Constants.bottomPadding)
                 }
@@ -45,20 +45,20 @@ public extension View {
     ///     }
     ///     // more tabs...
     /// }
-    /// .fabBar(selection: $selectedTab, items: items, action: action)
+    /// .fabBar(selection: $selectedTab, tabs: tabs, action: action)
     /// ```
     ///
     /// - Parameters:
     ///   - selection: A binding to the currently selected tab.
-    ///   - items: The tab items to display.
+    ///   - tabs: The tabs to display.
     ///   - action: The floating action button configuration.
     ///   - isVisible: Whether the FabBar is visible. Defaults to `true`.
-    func fabBar<Tab: Hashable>(
-        selection: Binding<Tab>,
-        items: [FabBarItem<Tab>],
-        action: FabAction,
+    func fabBar<Value: Hashable>(
+        selection: Binding<Value>,
+        tabs: [FabBarTab<Value>],
+        action: FabBarAction,
         isVisible: Bool = true
     ) -> some View {
-        modifier(FabBarModifier(selection: selection, items: items, action: action, isVisible: isVisible))
+        modifier(FabBarModifier(selection: selection, tabs: tabs, action: action, isVisible: isVisible))
     }
 }

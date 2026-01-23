@@ -34,18 +34,18 @@ struct ContentView: View {
         }
         .fabBar(
             selection: $selectedTab,
-            items: [
-                FabBarItem(tab: AppTab.home, title: "Home", systemImage: "house.fill", onReselect: {
+            tabs: [
+                FabBarTab(value: .home, title: "Home", systemImage: "house.fill", onReselect: {
                     print("Reselected: home")
                 }),
-                FabBarItem(tab: AppTab.explore, title: "Explore", systemImage: "map.fill", onReselect: {
+                FabBarTab(value: .explore, title: "Explore", systemImage: "map.fill", onReselect: {
                     print("Reselected: explore")
                 }),
-                FabBarItem(tab: AppTab.profile, title: "Profile", systemImage: "person.fill", onReselect: {
+                FabBarTab(value: .profile, title: "Profile", systemImage: "person.fill", onReselect: {
                     print("Reselected: profile")
                 }),
             ],
-            action: FabAction(
+            action: FabBarAction(
                 systemImage: "plus",
                 accessibilityLabel: "Add"
             ) {
@@ -76,7 +76,7 @@ struct TabContentView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityHidden(true)
             .navigationTitle(title)
         }

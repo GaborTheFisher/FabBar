@@ -20,12 +20,12 @@ import SwiftUI
 /// }
 /// .fabBar(
 ///     selection: $selectedTab,
-///     items: [
-///         FabBarItem(tab: .home, title: "Home", systemImage: "house.fill"),
-///         FabBarItem(tab: .explore, title: "Explore", systemImage: "compass"),
-///         FabBarItem(tab: .profile, title: "Profile", systemImage: "person.fill"),
+///     tabs: [
+///         FabBarTab(value: .home, title: "Home", systemImage: "house.fill"),
+///         FabBarTab(value: .explore, title: "Explore", systemImage: "compass"),
+///         FabBarTab(value: .profile, title: "Profile", systemImage: "person.fill"),
 ///     ],
-///     action: FabAction(systemImage: "plus", accessibilityLabel: "Add Item") {
+///     action: FabBarAction(systemImage: "plus", accessibilityLabel: "Add Item") {
 ///         // Handle tap
 ///     }
 /// )
@@ -34,48 +34,45 @@ import SwiftUI
 /// For more control over positioning, you can use the `FabBar` view directly.
 
 @available(iOS 26.0, *)
-public struct FabBar<Tab: Hashable>: View {
+public struct FabBar<Value: Hashable>: View {
     /// The currently selected tab.
-    @Binding public var selection: Tab
+    @Binding public var selection: Value
 
-    /// The tab items to display.
-    public let items: [FabBarItem<Tab>]
+    /// The tabs to display.
+    public let tabs: [FabBarTab<Value>]
 
     /// The floating action button configuration.
-    public var action: FabAction
+    public var action: FabBarAction
 
     /// Creates a FabBar with the specified configuration.
     ///
     /// - Parameters:
     ///   - selection: A binding to the currently selected tab.
-    ///   - items: The tab items to display.
+    ///   - tabs: The tabs to display.
     ///   - action: The floating action button configuration.
     public init(
-        selection: Binding<Tab>,
-        items: [FabBarItem<Tab>],
-        action: FabAction
+        selection: Binding<Value>,
+        tabs: [FabBarTab<Value>],
+        action: FabBarAction
     ) {
         self._selection = selection
-        self.items = items
+        self.tabs = tabs
         self.action = action
     }
 
     public var body: some View {
-        if items.isEmpty {
+        if tabs.isEmpty {
             Color.clear
                 .frame(height: Constants.barHeight)
                 .onAppear {
-                    fabBarLogger.warning("FabBar initialized with empty items array - nothing will be displayed")
+                    fabBarLogger.warning("FabBar initialized with empty tabs array - nothing will be displayed")
                 }
         } else {
-            GeometryReader { geo in
-                FabBarRepresentable(
-                    size: geo.size,
-                    items: items,
-                    action: action,
-                    activeTab: $selection
-                )
-            }
+            FabBarRepresentable(
+                tabs: tabs,
+                action: action,
+                activeTab: $selection
+            )
             .frame(height: Constants.barHeight)
         }
     }

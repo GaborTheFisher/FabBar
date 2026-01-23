@@ -1,13 +1,13 @@
 import UIKit
 
-/// A container view that wraps the segmented control and FAB button with UIKit glass effects.
-/// Uses UIGlassContainerEffect to enable morphing between the glass elements.
+/// The root UIKit view that assembles the tab bar with glass effects.
+/// Uses UIGlassContainerEffect to enable morphing between the segmented control and FAB.
 @available(iOS 26.0, *)
-final class GlassTabBarContainer<Tab: Hashable>: UIView {
+final class GlassTabBarView<Value: Hashable>: UIView {
     let containerEffectView: UIVisualEffectView
     let segmentedGlassView: UIVisualEffectView
-    let segmentedControl: HiddenLabelSegmentedControl
-    let labelsOverlay: TabItemLabelsOverlay<Tab>
+    let segmentedControl: TabBarSegmentedControl
+    let labelsOverlay: TabItemsOverlay<Value>
     let fabGlassView: UIVisualEffectView
     let fabButton: UIButton
 
@@ -15,13 +15,13 @@ final class GlassTabBarContainer<Tab: Hashable>: UIView {
     private let contentPadding: CGFloat = Constants.contentPadding
 
     init(
-        segmentedControl: HiddenLabelSegmentedControl,
-        tabItems: [FabBarItem<Tab>],
+        segmentedControl: TabBarSegmentedControl,
+        tabs: [FabBarTab<Value>],
         selectedIndex: Int,
-        action: FabAction
+        action: FabBarAction
     ) {
         self.segmentedControl = segmentedControl
-        labelsOverlay = TabItemLabelsOverlay(tabItems: tabItems, selectedIndex: selectedIndex)
+        labelsOverlay = TabItemsOverlay(tabs: tabs, selectedIndex: selectedIndex)
 
         // Create glass container effect for morphing
         let containerEffect = UIGlassContainerEffect()
@@ -59,7 +59,7 @@ final class GlassTabBarContainer<Tab: Hashable>: UIView {
         setupHighlightCallbacks()
     }
 
-    private func setupViews(action: FabAction) {
+    private func setupViews(action: FabBarAction) {
         // Add container effect view
         addSubview(containerEffectView)
         containerEffectView.translatesAutoresizingMaskIntoConstraints = false

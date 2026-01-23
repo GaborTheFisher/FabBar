@@ -1,10 +1,10 @@
 import UIKit
 
-/// A UIView that overlays custom tab item labels on top of the segmented control.
+/// A UIView that overlays custom tab items on top of the segmented control.
 /// Positioned using Auto Layout to align with each segment.
 @available(iOS 26.0, *)
-final class TabItemLabelsOverlay<Tab: Hashable>: UIView {
-    private var tabItemViews: [TabItemLabelView<Tab>] = []
+final class TabItemsOverlay<Value: Hashable>: UIView {
+    private var tabItemViews: [TabItemView<Value>] = []
     private var selectedIndex: Int = 0
     private var highlightedIndex: Int?
 
@@ -22,13 +22,13 @@ final class TabItemLabelsOverlay<Tab: Hashable>: UIView {
         }
     }
 
-    init(tabItems: [FabBarItem<Tab>], selectedIndex: Int) {
+    init(tabs: [FabBarTab<Value>], selectedIndex: Int) {
         self.selectedIndex = selectedIndex
         super.init(frame: .zero)
 
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
-        setupTabItemViews(tabItems: tabItems)
+        setupTabViews(tabs: tabs)
         updateHighlightStates()
     }
 
@@ -37,14 +37,14 @@ final class TabItemLabelsOverlay<Tab: Hashable>: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupTabItemViews(tabItems: [FabBarItem<Tab>]) {
+    private func setupTabViews(tabs: [FabBarTab<Value>]) {
         let stackView = UIStackView()
         stackView.axis = .horizontal
         stackView.distribution = .fillEqually
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        for tabItem in tabItems {
-            let tabItemView = TabItemLabelView(tabItem: tabItem)
+        for tab in tabs {
+            let tabItemView = TabItemView(tab: tab)
             tabItemView.activeTintColor = activeTintColor
             tabItemView.inactiveTintColor = inactiveTintColor
             tabItemViews.append(tabItemView)

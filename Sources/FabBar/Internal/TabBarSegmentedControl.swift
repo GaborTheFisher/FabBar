@@ -2,7 +2,7 @@ import UIKit
 
 /// A UISegmentedControl subclass customized for use as a tab bar replacement.
 ///
-/// This subclass provides three key customizations:
+/// This subclass provides four key customizations:
 ///
 /// 1. **Hidden labels and images**: Hides all UILabel subviews recursively and segment
 ///    background/separator images while preserving the selected segment indicator.
@@ -19,7 +19,7 @@ import UIKit
 ///
 /// 4. **Reselection callback**: Notifies when user taps an already-selected segment.
 @available(iOS 26.0, *)
-final class HiddenLabelSegmentedControl: UISegmentedControl {
+final class TabBarSegmentedControl: UISegmentedControl {
     /// The segment index before touch began, used to restore on cancel and detect actual changes.
     private var originalIndex: Int?
 

@@ -1,15 +1,15 @@
 import Foundation
 
-/// A tab item configuration for FabBar.
+/// A tab configuration for FabBar.
 ///
-/// Each item represents a tab in the tab bar with an icon and title.
-/// The tab is identified by a generic `Tab` type that must conform to `Hashable`.
+/// Each tab represents an item in the tab bar with an icon and title.
+/// The tab is identified by a generic `Value` type that must conform to `Hashable`.
 @available(iOS 26.0, *)
-public struct FabBarItem<Tab: Hashable>: Identifiable {
-    public var id: Tab { tab }
+public struct FabBarTab<Value: Hashable>: Identifiable {
+    public var id: Value { value }
 
     /// The tab identifier.
-    public let tab: Tab
+    public let value: Value
 
     /// The title displayed below the icon.
     public let title: String
@@ -27,20 +27,20 @@ public struct FabBarItem<Tab: Hashable>: Identifiable {
     /// Useful for scroll-to-top or similar behaviors.
     public let onReselect: (() -> Void)?
 
-    /// Creates a tab item with an SF Symbol icon.
+    /// Creates a tab with an SF Symbol icon.
     ///
     /// - Parameters:
-    ///   - tab: The tab identifier.
+    ///   - value: The tab identifier.
     ///   - title: The title displayed below the icon.
     ///   - systemImage: The SF Symbol name for the icon.
     ///   - onReselect: Called when the user taps this tab while it's already selected.
     public init(
-        tab: Tab,
+        value: Value,
         title: String,
         systemImage: String,
         onReselect: (() -> Void)? = nil
     ) {
-        self.tab = tab
+        self.value = value
         self.title = title
         self.systemImage = systemImage
         self.image = nil
@@ -48,22 +48,22 @@ public struct FabBarItem<Tab: Hashable>: Identifiable {
         self.onReselect = onReselect
     }
 
-    /// Creates a tab item with a custom image from a bundle.
+    /// Creates a tab with a custom image from a bundle.
     ///
     /// - Parameters:
-    ///   - tab: The tab identifier.
+    ///   - value: The tab identifier.
     ///   - title: The title displayed below the icon.
     ///   - image: The custom image name.
     ///   - imageBundle: The bundle containing the image. Defaults to `.main`.
     ///   - onReselect: Called when the user taps this tab while it's already selected.
     public init(
-        tab: Tab,
+        value: Value,
         title: String,
         image: String,
         imageBundle: Bundle? = nil,
         onReselect: (() -> Void)? = nil
     ) {
-        self.tab = tab
+        self.value = value
         self.title = title
         self.systemImage = nil
         self.image = image

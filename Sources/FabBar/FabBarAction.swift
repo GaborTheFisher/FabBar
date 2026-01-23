@@ -5,7 +5,7 @@ import Foundation
 /// The FAB appears as a circular glass button next to the tab items,
 /// morphing with the iOS 26 glass effect.
 @available(iOS 26.0, *)
-public struct FabAction {
+public struct FabBarAction {
     /// The SF Symbol name for the button icon.
     public let systemImage: String
 
