@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A1000001229F0001000B0001 /* FabBar in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001229F0002000B0001 /* FabBar */; };
+		141F84822F605C7200B75020 /* FabBar in Frameworks */ = {isa = PBXBuildFile; productRef = 141F84812F605C7200B75020 /* FabBar */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1000001229F0001000B0001 /* FabBar in Frameworks */,
+				141F84822F605C7200B75020 /* FabBar in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -40,7 +40,9 @@
 				A1000001229F0004000B0001 /* FabBarExample */,
 				A1000001229F0007000B0001 /* Products */,
 			);
+			indentWidth = 2;
 			sourceTree = "<group>";
+			tabWidth = 2;
 		};
 		A1000001229F0007000B0001 /* Products */ = {
 			isa = PBXGroup;
@@ -70,7 +72,7 @@
 			);
 			name = FabBarExample;
 			packageProductDependencies = (
-				A1000001229F0002000B0001 /* FabBar */,
+				141F84812F605C7200B75020 /* FabBar */,
 			);
 			productName = FabBarExample;
 			productReference = A1000001229F0003000B0001 /* FabBarExample.app */;
@@ -101,7 +103,7 @@
 			mainGroup = A1000001229F0006000B0001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A1000001229F000E000B0001 /* XCLocalSwiftPackageReference ".." */,
+				141F84802F605C7200B75020 /* XCLocalSwiftPackageReference "../../FabBar" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A1000001229F0007000B0001 /* Products */;
@@ -333,15 +335,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A1000001229F000E000B0001 /* XCLocalSwiftPackageReference ".." */ = {
+		141F84802F605C7200B75020 /* XCLocalSwiftPackageReference "../../FabBar" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ..;
+			relativePath = ../../FabBar;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A1000001229F0002000B0001 /* FabBar */ = {
+		141F84812F605C7200B75020 /* FabBar */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 141F84802F605C7200B75020 /* XCLocalSwiftPackageReference "../../FabBar" */;
 			productName = FabBar;
 		};
 /* End XCSwiftPackageProductDependency section */
