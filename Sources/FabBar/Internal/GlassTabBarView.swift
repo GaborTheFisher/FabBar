@@ -19,6 +19,7 @@ final class GlassTabBarView: UIView {
   private let secondaryActions: [FabBarAction]
   private var secondaryActionViews: [(glassView: UIVisualEffectView, button: UIButton)] = []
   private var isExpanded = false
+  private var backdropView: UIView?
 
   init(
     segmentedControl: TabBarSegmentedControl,
@@ -261,8 +262,34 @@ final class GlassTabBarView: UIView {
     if isExpanded { collapse() } else { expand() }
   }
 
+  private func showBackdrop() {
+    guard let window = window else { return }
+    // Cover the entire window so any tap outside the buttons collapses.
+    // Frame is in self's coordinate space so it extends well beyond bounds.
+    let windowBounds = window.bounds
+    let localRect = convert(windowBounds, from: window)
+    let backdrop = UIView(frame: localRect)
+    backdrop.backgroundColor = .clear
+    backdrop.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(backdropTapped))
+    )
+    // Behind everything in this view so buttons remain tappable
+    insertSubview(backdrop, at: 0)
+    backdropView = backdrop
+  }
+
+  private func removeBackdrop() {
+    backdropView?.removeFromSuperview()
+    backdropView = nil
+  }
+
+  @objc private func backdropTapped() {
+    collapse()
+  }
+
   private func expand() {
     isExpanded = true
+    showBackdrop()
     let buttonHeight = fabGlassView.bounds.height
     let gap: CGFloat = 12
 
@@ -286,6 +313,7 @@ final class GlassTabBarView: UIView {
 
   private func collapse() {
     isExpanded = false
+    removeBackdrop()
 
     for (index, (glassView, _)) in secondaryActionViews.reversed().enumerated() {
       let delay = Double(index) * 0.03
@@ -309,6 +337,11 @@ final class GlassTabBarView: UIView {
   override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
     if super.point(inside: point, with: event) { return true }
     if isExpanded {
+      // Accept any point within the backdrop (full screen) so the tap
+      // gesture recognizer can fire and collapse the menu
+      if let backdrop = backdropView, backdrop.frame.contains(point) {
+        return true
+      }
       for (glassView, _) in secondaryActionViews {
         let converted = glassView.convert(point, from: self)
         if glassView.point(inside: converted, with: event) { return true }
