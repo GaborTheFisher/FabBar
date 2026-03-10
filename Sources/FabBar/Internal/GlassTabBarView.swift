@@ -109,7 +109,7 @@ final class GlassTabBarView: UIView {
     if secondaryActions.isEmpty {
       fabButton.addAction(UIAction { _ in action.action() }, for: .touchUpInside)
     } else {
-      fabButton.addAction(UIAction { [weak self] _ in self?.toggleExpansion() }, for: .touchUpInside)
+      fabButton.addAction(UIAction { [weak self] _ in self?.toggleExpansion(action.action) }, for: .touchUpInside)
     }
 
     // Extra bottom inset compensates for UISegmentedControl's internal padding,
@@ -256,7 +256,8 @@ final class GlassTabBarView: UIView {
     }
   }
 
-  private func toggleExpansion() {
+  private func toggleExpansion(_ action: @escaping () -> Void) {
+    action()
     if isExpanded { collapse() } else { expand() }
   }
 
