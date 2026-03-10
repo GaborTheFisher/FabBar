@@ -240,6 +240,11 @@ final class GlassTabBarView: UIView {
       glassView.alpha = 0
       glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
 
+      // Bring to front on touch so the glass highlight isn't obscured by siblings
+      button.addAction(UIAction { _ in
+        glassView.superview?.bringSubviewToFront(glassView)
+      }, for: .touchDown)
+
       // Tapping a secondary action fires it and collapses the menu
       let handler = secondaryAction.action
       button.addAction(UIAction { [weak self] _ in
