@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// A tab configuration for FabBar.
 ///
@@ -11,8 +12,11 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
   /// The tab identifier.
   public let value: Value
 
-  /// The title displayed below the icon.
-  public let title: String
+  /// The localized title displayed below the icon.
+  public let title: LocalizedStringKey
+
+  /// The resolved title string for use in UIKit contexts.
+  internal let resolvedTitle: String
 
   /// The SF Symbol name for the icon. Used when `image` is nil.
   public let systemImage: String?
@@ -31,17 +35,18 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
   ///
   /// - Parameters:
   ///   - value: The tab identifier.
-  ///   - title: The title displayed below the icon.
+  ///   - title: The localized title displayed below the icon.
   ///   - systemImage: The SF Symbol name for the icon.
   ///   - onReselect: Called when the user taps this tab while it's already selected.
   public init(
     value: Value,
-    title: String,
+    title: LocalizedStringKey,
     systemImage: String,
     onReselect: (() -> Void)? = nil
   ) {
     self.value = value
     self.title = title
+    self.resolvedTitle = title.resolved()
     self.systemImage = systemImage
     self.image = nil
     self.imageBundle = nil
@@ -52,22 +57,35 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
   ///
   /// - Parameters:
   ///   - value: The tab identifier.
-  ///   - title: The title displayed below the icon.
+  ///   - title: The localized title displayed below the icon.
   ///   - image: The custom image name.
   ///   - imageBundle: The bundle containing the image. Defaults to `.main`.
   ///   - onReselect: Called when the user taps this tab while it's already selected.
   public init(
     value: Value,
-    title: String,
+    title: LocalizedStringKey,
     image: String,
     imageBundle: Bundle? = nil,
     onReselect: (() -> Void)? = nil
   ) {
     self.value = value
     self.title = title
+    self.resolvedTitle = title.resolved()
     self.systemImage = nil
     self.image = image
     self.imageBundle = imageBundle ?? .main
     self.onReselect = onReselect
+  }
+}
+
+extension LocalizedStringKey {
+  /// Resolves this key to a plain `String` using the current locale and main bundle.
+  func resolved() -> String {
+    // Use Mirror to extract the key from LocalizedStringKey, then look it up via NSLocalizedString.
+    let mirror = Mirror(reflecting: self)
+    if let key = mirror.children.first(where: { $0.label == "key" })?.value as? String {
+      return NSLocalizedString(key, comment: "")
+    }
+    return "\(self)"
   }
 }

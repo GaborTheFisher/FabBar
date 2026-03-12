@@ -95,7 +95,7 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   /// Sets accessibility titles, injects content views, and configures segment widths.
   private func configureSegmentContent(on control: TabBarSegmentedControl) {
     for (index, tab) in tabs.enumerated() {
-      control.setTitle(tab.title, forSegmentAt: index)
+      control.setTitle(tab.resolvedTitle, forSegmentAt: index)
     }
 
     // Content views use draw(_:) rendering with NSCoding support, so when the
@@ -115,9 +115,9 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
 
   private func makeContentView(for tab: FabBarTab<Value>) -> TabItemContentView {
     if let imageName = tab.image {
-      TabItemContentView(title: tab.title, imageName: imageName, imageBundle: tab.imageBundle)
+      TabItemContentView(title: tab.resolvedTitle, imageName: imageName, imageBundle: tab.imageBundle)
     } else {
-      TabItemContentView(title: tab.title, symbolName: tab.systemImage ?? "")
+      TabItemContentView(title: tab.resolvedTitle, symbolName: tab.systemImage ?? "")
     }
   }
 
