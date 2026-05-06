@@ -10,6 +10,7 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   var tabs: [FabBarTab<Value>]
   var action: FabBarAction
   var secondaryActions: [FabBarAction]
+  var collapseTrigger: Int
 
   @Binding var activeTab: Value
 
@@ -83,6 +84,11 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
       control.selectedSegmentIndex = newIndex
     }
 
+    if collapseTrigger != context.coordinator.previousCollapseTrigger {
+      context.coordinator.previousCollapseTrigger = collapseTrigger
+      uiView.collapseSecondaryActions()
+    }
+
     // Set accent color from the view's inherited tintColor, converted to a concrete color.
     // Only update when tintAdjustmentMode is normal — when dimmed (e.g. sheet presented),
     // tintColor returns a dimmed gray which would incorrectly overwrite the accent color.
@@ -134,10 +140,12 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   class Coordinator: NSObject {
     var parent: FabBarRepresentable<Value>
     var previousTabValues: [Value]
+    var previousCollapseTrigger: Int
 
     init(parent: FabBarRepresentable<Value>) {
       self.parent = parent
       self.previousTabValues = parent.tabs.map(\.value)
+      self.previousCollapseTrigger = parent.collapseTrigger
     }
 
     @objc func tabSelected(_ control: UISegmentedControl) {

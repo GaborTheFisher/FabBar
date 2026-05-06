@@ -46,22 +46,29 @@ public struct FabBar<Value: Hashable>: View {
 
   public var secondaryActions: [FabBarAction]
 
+  /// Increment this value to collapse any expanded secondary actions.
+  public var collapseTrigger: Int
+
   /// Creates a FabBar with the specified configuration.
   ///
   /// - Parameters:
   ///   - selection: A binding to the currently selected tab.
   ///   - tabs: The tabs to display.
   ///   - action: The floating action button configuration.
+  ///   - secondaryActions: Optional actions shown when tapping the floating action button.
+  ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
   public init(
     selection: Binding<Value>,
     tabs: [FabBarTab<Value>],
     action: FabBarAction,
-    secondaryActions: [FabBarAction] = []
+    secondaryActions: [FabBarAction] = [],
+    collapseTrigger: Int = 0
   ) {
     self._selection = selection
     self.tabs = tabs
     self.action = action
     self.secondaryActions = secondaryActions
+    self.collapseTrigger = collapseTrigger
   }
 
   public var body: some View {
@@ -76,6 +83,7 @@ public struct FabBar<Value: Hashable>: View {
         tabs: tabs,
         action: action,
         secondaryActions: secondaryActions,
+        collapseTrigger: collapseTrigger,
         activeTab: $selection
       )
       .frame(height: Constants.barHeight)

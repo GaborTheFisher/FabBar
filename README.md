@@ -142,6 +142,25 @@ Hide the FabBar based on app state (e.g., during selection mode):
 )
 ```
 
+### Collapsing Secondary Actions
+
+Increment `collapseTrigger` to dismiss expanded secondary actions from outside the bar, for example when changing tabs:
+
+```swift
+@State private var collapseTrigger = 0
+
+FabBar(
+    selection: $selectedTab,
+    tabs: tabs,
+    action: action,
+    secondaryActions: secondaryActions,
+    collapseTrigger: collapseTrigger
+)
+.onChange(of: selectedTab) { _, _ in
+    collapseTrigger += 1
+}
+```
+
 ### Manual Positioning
 
 For more control, use the `FabBar` view directly instead of the modifier. Apply 21pt padding on all sides:

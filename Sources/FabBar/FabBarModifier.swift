@@ -14,6 +14,7 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
     let tabs: [FabBarTab<Value>]
     let action: FabBarAction
     let isVisible: Bool
+    let collapseTrigger: Int
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var bottomSafeAreaInset: CGFloat = 0
@@ -41,7 +42,12 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
         content
             .safeAreaBar(edge: .bottom) {
                 if showsFabBar {
-                    FabBar(selection: $selection, tabs: tabs, action: action)
+                    FabBar(
+                        selection: $selection,
+                        tabs: tabs,
+                        action: action,
+                        collapseTrigger: collapseTrigger
+                    )
                         .padding(.horizontal, Constants.horizontalPadding)
                         .padding(.bottom, Constants.bottomPadding)
                 }
@@ -80,12 +86,20 @@ public extension View {
     ///   - tabs: The tabs to display.
     ///   - action: The floating action button configuration.
     ///   - isVisible: Whether the FabBar is visible. Defaults to `true`.
+    ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
     func fabBar<Value: Hashable>(
         selection: Binding<Value>,
         tabs: [FabBarTab<Value>],
         action: FabBarAction,
-        isVisible: Bool = true
+        isVisible: Bool = true,
+        collapseTrigger: Int = 0
     ) -> some View {
-        modifier(FabBarModifier(selection: selection, tabs: tabs, action: action, isVisible: isVisible))
+        modifier(FabBarModifier(
+            selection: selection,
+            tabs: tabs,
+            action: action,
+            isVisible: isVisible,
+            collapseTrigger: collapseTrigger
+        ))
     }
 }

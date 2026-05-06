@@ -311,7 +311,8 @@ final class GlassTabBarView: UIView {
     }
   }
 
-  private func collapse() {
+  func collapseSecondaryActions() {
+    guard isExpanded else { return }
     isExpanded = false
     removeBackdrop()
 
@@ -330,6 +331,10 @@ final class GlassTabBarView: UIView {
     UIView.animate(withDuration: 0.3) {
       self.fabButton.transform = .identity
     }
+  }
+
+  private func collapse() {
+    collapseSecondaryActions()
   }
 
   // MARK: - Hit Testing
