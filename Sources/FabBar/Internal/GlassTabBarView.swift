@@ -17,12 +17,12 @@ final class GlassTabBarView: UIView {
   private var segmentedTrailingConstraint: NSLayoutConstraint?
 
   /// A pre-built secondary action view, parked off-screen until the menu
-  /// expands. `width` is the laid-out pill width; `nil` means circular,
-  /// matching the FAB width measured at expand time.
+  /// expands. `isCircle` icon-only pills match the FAB width; custom-view
+  /// pills size themselves to their content via Auto Layout.
   private struct SecondaryItem {
     let glassView: UIVisualEffectView
     let button: UIButton
-    let width: CGFloat?
+    let isCircle: Bool
   }
 
   private let secondaryActions: [FabBarAction]
@@ -34,8 +34,9 @@ final class GlassTabBarView: UIView {
   private let secondaryGap: CGFloat = 12
 
   /// Window size captured when the menu expanded. The expanded pills are
-  /// hosted in the window at absolute frames, so a rotation or scene resize
-  /// would leave them stranded — when the size changes we collapse instead.
+  /// hosted in the window pinned to the FAB's position at expand time, so a
+  /// rotation or scene resize would leave them stranded — when the size
+  /// changes we collapse instead.
   private var expandedWindowSize: CGSize = .zero
 
   init(
@@ -200,8 +201,9 @@ final class GlassTabBarView: UIView {
       let glassEffect = UIGlassEffect()
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
-      // Frame-positioned in the window at expand time.
-      glassView.translatesAutoresizingMaskIntoConstraints = true
+      // Sized by Auto Layout from its content; positioned in the window at
+      // expand time (see `expand()`).
+      glassView.translatesAutoresizingMaskIntoConstraints = false
       glassView.cornerConfiguration = .capsule()
       glassView.alpha = 0
 
@@ -211,25 +213,31 @@ final class GlassTabBarView: UIView {
       let button = UIButton(type: .system)
       button.translatesAutoresizingMaskIntoConstraints = false
 
-      var width: CGFloat?
+      // Internal constraints — independent of where the pill is hosted.
+      var constraints: [NSLayoutConstraint] = []
+
       if let customVC = secondaryAction.customView {
         let hostingView = customVC.view!
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.backgroundColor = .clear
         hostingView.isUserInteractionEnabled = false
 
-        // UIHostingController views don't propagate intrinsic content size
-        // through Auto Layout. Measure it explicitly and pin a fixed width.
+        // A hosting view's content size isn't reliable until it has laid out
+        // on screen, so use this measurement only as a minimum width — the
+        // pill's real width is driven by the hosting view's intrinsic content
+        // once it's in the window (which is why this is a constraint, not a
+        // frame).
         let fittingSize = hostingView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        width = fittingSize.width + horizontalPadding * 2
+        let totalWidth = fittingSize.width + horizontalPadding * 2
 
         button.addSubview(hostingView)
-        NSLayoutConstraint.activate([
+        constraints += [
           hostingView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
           hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
           hostingView.topAnchor.constraint(equalTo: button.topAnchor),
           hostingView.bottomAnchor.constraint(equalTo: button.bottomAnchor),
-        ])
+          glassView.widthAnchor.constraint(greaterThanOrEqualToConstant: totalWidth),
+        ]
       } else {
         let config = UIImage.SymbolConfiguration(pointSize: Constants.fabIconPointSize, weight: .medium)
         let buttonImage = UIImage(systemName: secondaryAction.systemImage, withConfiguration: config)
@@ -240,12 +248,13 @@ final class GlassTabBarView: UIView {
       button.accessibilityTraits = .button
 
       glassView.contentView.addSubview(button)
-      NSLayoutConstraint.activate([
+      constraints += [
         button.leadingAnchor.constraint(equalTo: glassView.contentView.leadingAnchor, constant: horizontalPadding),
         button.trailingAnchor.constraint(equalTo: glassView.contentView.trailingAnchor, constant: -horizontalPadding),
         button.topAnchor.constraint(equalTo: glassView.contentView.topAnchor),
         button.bottomAnchor.constraint(equalTo: glassView.contentView.bottomAnchor),
-      ])
+      ]
+      NSLayoutConstraint.activate(constraints)
 
       // Bring to front on touch so the glass highlight isn't obscured by siblings
       button.addAction(UIAction { [weak glassView] _ in
@@ -260,7 +269,7 @@ final class GlassTabBarView: UIView {
         self?.collapse()
       }, for: .touchUpInside)
 
-      secondaryItems.append(SecondaryItem(glassView: glassView, button: button, width: width))
+      secondaryItems.append(SecondaryItem(glassView: glassView, button: button, isCircle: !hasCustomView))
     }
   }
 
@@ -307,17 +316,27 @@ final class GlassTabBarView: UIView {
 
     for (index, item) in secondaryItems.enumerated() {
       let glassView = item.glassView
-      let width = item.width ?? fab.width
-
-      // Lay the pill out at its collapsed position (sitting on the FAB,
-      // right-aligned), then animate the transform exactly as before so it
-      // grows up out of the FAB.
       glassView.transform = .identity
-      glassView.frame = CGRect(x: fab.maxX - width, y: fab.minY, width: width, height: fab.height)
-      glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
       glassView.alpha = 0
-
       window.addSubview(glassView)
+
+      // Pin the pill to the FAB's collapsed position (right-aligned, vertically
+      // centred). Height matches the FAB; width is the FAB's for circles or
+      // intrinsic from the content for custom pills. The expand motion is a
+      // transform on top of this, so the layout stays content-sized.
+      var positioning: [NSLayoutConstraint] = [
+        glassView.trailingAnchor.constraint(equalTo: window.leadingAnchor, constant: fab.maxX),
+        glassView.centerYAnchor.constraint(equalTo: window.topAnchor, constant: fab.midY),
+        glassView.heightAnchor.constraint(equalToConstant: fab.height),
+      ]
+      if item.isCircle {
+        positioning.append(glassView.widthAnchor.constraint(equalTo: glassView.heightAnchor))
+      }
+      NSLayoutConstraint.activate(positioning)
+      // Resolve the frame now so the collapsed scale anchors on the FAB.
+      window.layoutIfNeeded()
+
+      glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
 
       let offset = CGFloat(index + 1) * (fab.height + secondaryGap)
       let delay = Double(index) * 0.03
