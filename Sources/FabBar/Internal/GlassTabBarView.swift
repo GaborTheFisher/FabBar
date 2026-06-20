@@ -16,10 +16,27 @@ final class GlassTabBarView: UIView {
   private(set) var tabCount: Int
   private var segmentedTrailingConstraint: NSLayoutConstraint?
 
+  /// A pre-built secondary action view, parked off-screen until the menu
+  /// expands. `width` is the laid-out pill width; `nil` means circular,
+  /// matching the FAB width measured at expand time.
+  private struct SecondaryItem {
+    let glassView: UIVisualEffectView
+    let button: UIButton
+    let width: CGFloat?
+  }
+
   private let secondaryActions: [FabBarAction]
-  private var secondaryActionViews: [(glassView: UIVisualEffectView, button: UIButton)] = []
+  private var secondaryItems: [SecondaryItem] = []
   private var isExpanded = false
   private var backdropView: UIView?
+
+  /// Spacing between the FAB and the first pill / between pills.
+  private let secondaryGap: CGFloat = 12
+
+  /// Window size captured when the menu expanded. The expanded pills are
+  /// hosted in the window at absolute frames, so a rotation or scene resize
+  /// would leave them stranded — when the size changes we collapse instead.
+  private var expandedWindowSize: CGSize = .zero
 
   init(
     segmentedControl: TabBarSegmentedControl,
@@ -171,17 +188,30 @@ final class GlassTabBarView: UIView {
 
   // MARK: - Secondary Actions
 
+  /// Builds each secondary-action pill but leaves it detached. The pills are
+  /// added to the *window* on expand (see ``expand()``) rather than to this
+  /// view: the bar is laid out at a fixed `barHeight` by the SwiftUI host that
+  /// wraps it, and that host clips hit-testing to its own bounds — so any pill
+  /// fanned out *above* the bar would render but never receive touches. Hosting
+  /// the pills in the window puts them outside that clip while leaving the bar's
+  /// layout footprint untouched.
   private func setupSecondaryActions() {
     for secondaryAction in secondaryActions {
       let glassEffect = UIGlassEffect()
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
-      glassView.translatesAutoresizingMaskIntoConstraints = false
+      // Frame-positioned in the window at expand time.
+      glassView.translatesAutoresizingMaskIntoConstraints = true
+      glassView.cornerConfiguration = .capsule()
+      glassView.alpha = 0
 
       let hasCustomView = secondaryAction.customView != nil
       let horizontalPadding: CGFloat = hasCustomView ? 12 : 0
 
       let button = UIButton(type: .system)
+      button.translatesAutoresizingMaskIntoConstraints = false
+
+      var width: CGFloat?
       if let customVC = secondaryAction.customView {
         let hostingView = customVC.view!
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -189,9 +219,9 @@ final class GlassTabBarView: UIView {
         hostingView.isUserInteractionEnabled = false
 
         // UIHostingController views don't propagate intrinsic content size
-        // through Auto Layout. Measure it explicitly and set a fixed width.
+        // through Auto Layout. Measure it explicitly and pin a fixed width.
         let fittingSize = hostingView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        let totalWidth = fittingSize.width + horizontalPadding * 2
+        width = fittingSize.width + horizontalPadding * 2
 
         button.addSubview(hostingView)
         NSLayoutConstraint.activate([
@@ -199,7 +229,6 @@ final class GlassTabBarView: UIView {
           hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
           hostingView.topAnchor.constraint(equalTo: button.topAnchor),
           hostingView.bottomAnchor.constraint(equalTo: button.bottomAnchor),
-          glassView.widthAnchor.constraint(greaterThanOrEqualToConstant: totalWidth),
         ])
       } else {
         let config = UIImage.SymbolConfiguration(pointSize: Constants.fabIconPointSize, weight: .medium)
@@ -209,40 +238,18 @@ final class GlassTabBarView: UIView {
       }
       button.accessibilityLabel = secondaryAction.accessibilityLabel
       button.accessibilityTraits = .button
-      button.translatesAutoresizingMaskIntoConstraints = false
 
       glassView.contentView.addSubview(button)
-
-      // Insert below containerEffectView so buttons emerge from behind the FAB
-      insertSubview(glassView, belowSubview: containerEffectView)
-
-      // Right-align to FAB and vertically center on FAB for collapsed state
-      var constraints = [
-        glassView.trailingAnchor.constraint(equalTo: fabGlassView.trailingAnchor),
-        glassView.centerYAnchor.constraint(equalTo: fabGlassView.centerYAnchor),
-        glassView.heightAnchor.constraint(equalTo: fabGlassView.heightAnchor),
-
+      NSLayoutConstraint.activate([
         button.leadingAnchor.constraint(equalTo: glassView.contentView.leadingAnchor, constant: horizontalPadding),
         button.trailingAnchor.constraint(equalTo: glassView.contentView.trailingAnchor, constant: -horizontalPadding),
         button.topAnchor.constraint(equalTo: glassView.contentView.topAnchor),
         button.bottomAnchor.constraint(equalTo: glassView.contentView.bottomAnchor),
-      ]
-
-      if !hasCustomView {
-        // Circle: match FAB width
-        constraints.append(
-          glassView.widthAnchor.constraint(equalTo: fabGlassView.widthAnchor)
-        )
-      }
-
-      NSLayoutConstraint.activate(constraints)
-
-      // Start collapsed
-      glassView.alpha = 0
-      glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+      ])
 
       // Bring to front on touch so the glass highlight isn't obscured by siblings
-      button.addAction(UIAction { _ in
+      button.addAction(UIAction { [weak glassView] _ in
+        guard let glassView else { return }
         glassView.superview?.bringSubviewToFront(glassView)
       }, for: .touchDown)
 
@@ -253,7 +260,7 @@ final class GlassTabBarView: UIView {
         self?.collapse()
       }, for: .touchUpInside)
 
-      secondaryActionViews.append((glassView: glassView, button: button))
+      secondaryItems.append(SecondaryItem(glassView: glassView, button: button, width: width))
     }
   }
 
@@ -262,19 +269,18 @@ final class GlassTabBarView: UIView {
     if isExpanded { collapse() } else { expand() }
   }
 
-  private func showBackdrop() {
-    guard let window = window else { return }
-    // Cover the entire window so any tap outside the buttons collapses.
-    // Frame is in self's coordinate space so it extends well beyond bounds.
-    let windowBounds = window.bounds
-    let localRect = convert(windowBounds, from: window)
-    let backdrop = UIView(frame: localRect)
+  // MARK: - Backdrop
+
+  private func addBackdrop(to window: UIWindow) {
+    // Cover the whole window so a tap anywhere outside the pills collapses
+    // the menu. Hosted in the window (not in `self`) for the same reason the
+    // pills are — to stay clear of the bar's hit-test clip.
+    let backdrop = UIView(frame: window.bounds)
     backdrop.backgroundColor = .clear
     backdrop.addGestureRecognizer(
       UITapGestureRecognizer(target: self, action: #selector(backdropTapped))
     )
-    // Behind everything in this view so buttons remain tappable
-    insertSubview(backdrop, at: 0)
+    window.addSubview(backdrop)
     backdropView = backdrop
   }
 
@@ -287,16 +293,34 @@ final class GlassTabBarView: UIView {
     collapse()
   }
 
+  // MARK: - Expand / Collapse
+
   private func expand() {
+    guard !isExpanded, !secondaryItems.isEmpty, let window else { return }
     isExpanded = true
-    showBackdrop()
-    let buttonHeight = fabGlassView.bounds.height
-    let gap: CGFloat = 12
+    expandedWindowSize = window.bounds.size
 
-    for (index, (glassView, _)) in secondaryActionViews.enumerated() {
-      let offset = CGFloat(index + 1) * (buttonHeight + gap)
+    // FAB rect in window space — the anchor everything fans out from.
+    let fab = fabGlassView.convert(fabGlassView.bounds, to: window)
+
+    addBackdrop(to: window)
+
+    for (index, item) in secondaryItems.enumerated() {
+      let glassView = item.glassView
+      let width = item.width ?? fab.width
+
+      // Lay the pill out at its collapsed position (sitting on the FAB,
+      // right-aligned), then animate the transform exactly as before so it
+      // grows up out of the FAB.
+      glassView.transform = .identity
+      glassView.frame = CGRect(x: fab.maxX - width, y: fab.minY, width: width, height: fab.height)
+      glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+      glassView.alpha = 0
+
+      window.addSubview(glassView)
+
+      let offset = CGFloat(index + 1) * (fab.height + secondaryGap)
       let delay = Double(index) * 0.03
-
       UIView.animate(
         withDuration: 0.4, delay: delay,
         usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5
@@ -311,58 +335,43 @@ final class GlassTabBarView: UIView {
     }
   }
 
+  /// Public entry point used by the representable's `collapseTrigger`.
   func collapseSecondaryActions() {
+    collapse(animated: true)
+  }
+
+  private func collapse(animated: Bool = true) {
     guard isExpanded else { return }
     isExpanded = false
     removeBackdrop()
 
-    for (index, (glassView, _)) in secondaryActionViews.reversed().enumerated() {
-      let delay = Double(index) * 0.03
-
-      UIView.animate(
-        withDuration: 0.3, delay: delay,
-        usingSpringWithDamping: 0.85, initialSpringVelocity: 0
-      ) {
+    for (index, item) in secondaryItems.reversed().enumerated() {
+      let glassView = item.glassView
+      let settle = {
         glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
         glassView.alpha = 0
       }
+      if animated {
+        let delay = Double(index) * 0.03
+        UIView.animate(
+          withDuration: 0.3, delay: delay,
+          usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
+          animations: settle,
+          completion: { _ in glassView.removeFromSuperview() }
+        )
+      } else {
+        settle()
+        glassView.removeFromSuperview()
+      }
     }
 
-    UIView.animate(withDuration: 0.3) {
+    UIView.animate(withDuration: animated ? 0.3 : 0) {
       self.fabButton.transform = .identity
     }
   }
 
   private func collapse() {
-    collapseSecondaryActions()
-  }
-
-  // MARK: - Hit Testing
-
-  override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-    if super.point(inside: point, with: event) { return true }
-    if isExpanded {
-      // Accept any point within the backdrop (full screen) so the tap
-      // gesture recognizer can fire and collapse the menu
-      if let backdrop = backdropView, backdrop.frame.contains(point) {
-        return true
-      }
-      for (glassView, _) in secondaryActionViews {
-        let converted = glassView.convert(point, from: self)
-        if glassView.point(inside: converted, with: event) { return true }
-      }
-    }
-    return false
-  }
-
-  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-    if isExpanded {
-      for (glassView, _) in secondaryActionViews.reversed() {
-        let converted = glassView.convert(point, from: self)
-        if let hit = glassView.hitTest(converted, with: event) { return hit }
-      }
-    }
-    return super.hitTest(point, with: event)
+    collapse(animated: true)
   }
 
   @available(*, unavailable)
@@ -379,8 +388,11 @@ final class GlassTabBarView: UIView {
     // Circle shape for FAB button (capsule with equal width/height = circle)
     fabGlassView.cornerConfiguration = .capsule()
 
-    for (glassView, _) in secondaryActionViews {
-      glassView.cornerConfiguration = .capsule()
+    // The expanded pills live in the window at absolute frames anchored to the
+    // FAB's position at expand time. A rotation or scene resize moves the FAB
+    // but not the pills, so collapse them rather than leave them misplaced.
+    if isExpanded, let window, window.bounds.size != expandedWindowSize {
+      collapse(animated: false)
     }
   }
 
