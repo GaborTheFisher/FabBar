@@ -189,23 +189,23 @@ final class GlassTabBarView: UIView {
 
   // MARK: - Secondary Actions
 
-  /// Builds each secondary-action pill but leaves it detached. The pills are
-  /// added to the *window* on expand (see ``expand()``) rather than to this
-  /// view: the bar is laid out at a fixed `barHeight` by the SwiftUI host that
-  /// wraps it, and that host clips hit-testing to its own bounds — so any pill
-  /// fanned out *above* the bar would render but never receive touches. Hosting
-  /// the pills in the window puts them outside that clip while leaving the bar's
-  /// layout footprint untouched.
+  /// Builds each secondary-action pill and parks it in the bar, hidden. While
+  /// collapsed the pills live here so their (SwiftUI) content lays out and
+  /// settles to a correct intrinsic size; on expand they're reparented to the
+  /// *window* (see ``expand()``). They can't simply fan out in place because
+  /// the bar is laid out at a fixed `barHeight` by the SwiftUI host that wraps
+  /// it, and that host clips hit-testing to its own bounds — so a pill above
+  /// the bar would render but never receive touches. Hosting them in the window
+  /// puts them outside that clip while leaving the bar's footprint untouched.
   private func setupSecondaryActions() {
     for secondaryAction in secondaryActions {
       let glassEffect = UIGlassEffect()
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
-      // Sized by Auto Layout from its content; positioned in the window at
-      // expand time (see `expand()`).
+      // Sized by Auto Layout from its content; parked in the bar while
+      // collapsed and reparented to the window on expand.
       glassView.translatesAutoresizingMaskIntoConstraints = false
       glassView.cornerConfiguration = .capsule()
-      glassView.alpha = 0
 
       let hasCustomView = secondaryAction.customView != nil
       let horizontalPadding: CGFloat = hasCustomView ? 12 : 0
@@ -254,7 +254,16 @@ final class GlassTabBarView: UIView {
         button.topAnchor.constraint(equalTo: glassView.contentView.topAnchor),
         button.bottomAnchor.constraint(equalTo: glassView.contentView.bottomAnchor),
       ]
+      if !hasCustomView {
+        // Icon-only pills are circular. This is internal to the pill (width
+        // relative to its own height) so it survives reparenting.
+        constraints.append(glassView.widthAnchor.constraint(equalTo: glassView.heightAnchor))
+      }
       NSLayoutConstraint.activate(constraints)
+
+      // Park hidden in the bar so the content lays out and warms up before the
+      // first expansion.
+      parkInBar(glassView)
 
       // Bring to front on touch so the glass highlight isn't obscured by siblings
       button.addAction(UIAction { [weak glassView] _ in
@@ -271,6 +280,22 @@ final class GlassTabBarView: UIView {
 
       secondaryItems.append(SecondaryItem(glassView: glassView, button: button, isCircle: !hasCustomView))
     }
+  }
+
+  /// Parks a pill back in the bar — hidden, collapsed, and pinned to the FAB.
+  /// Keeps its hosting view laid out (so it stays correctly sized for the next
+  /// expansion) and ready to fan out again. Reparenting drops the previous
+  /// superview's positioning constraints automatically; the pill's internal
+  /// content constraints persist.
+  private func parkInBar(_ glassView: UIVisualEffectView) {
+    insertSubview(glassView, belowSubview: containerEffectView)
+    NSLayoutConstraint.activate([
+      glassView.trailingAnchor.constraint(equalTo: fabGlassView.trailingAnchor),
+      glassView.centerYAnchor.constraint(equalTo: fabGlassView.centerYAnchor),
+      glassView.heightAnchor.constraint(equalTo: fabGlassView.heightAnchor),
+    ])
+    glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+    glassView.alpha = 0
   }
 
   private func toggleExpansion(_ action: @escaping () -> Void) {
@@ -318,21 +343,18 @@ final class GlassTabBarView: UIView {
       let glassView = item.glassView
       glassView.transform = .identity
       glassView.alpha = 0
+      // Reparent from the bar to the window; the bar-relative constraints drop
+      // automatically. The pill keeps its (already warmed) content size.
       window.addSubview(glassView)
 
-      // Pin the pill to the FAB's collapsed position (right-aligned, vertically
-      // centred). Height matches the FAB; width is the FAB's for circles or
-      // intrinsic from the content for custom pills. The expand motion is a
-      // transform on top of this, so the layout stays content-sized.
-      var positioning: [NSLayoutConstraint] = [
+      // Pin to the FAB's collapsed position (right-aligned, vertically centred).
+      // Width stays content-driven (circle width is an internal constraint), so
+      // the expand motion is just a transform on top of a correctly sized pill.
+      NSLayoutConstraint.activate([
         glassView.trailingAnchor.constraint(equalTo: window.leadingAnchor, constant: fab.maxX),
         glassView.centerYAnchor.constraint(equalTo: window.topAnchor, constant: fab.midY),
         glassView.heightAnchor.constraint(equalToConstant: fab.height),
-      ]
-      if item.isCircle {
-        positioning.append(glassView.widthAnchor.constraint(equalTo: glassView.heightAnchor))
-      }
-      NSLayoutConstraint.activate(positioning)
+      ])
       // Resolve the frame now so the collapsed scale anchors on the FAB.
       window.layoutIfNeeded()
 
@@ -376,11 +398,11 @@ final class GlassTabBarView: UIView {
           withDuration: 0.3, delay: delay,
           usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
           animations: settle,
-          completion: { _ in glassView.removeFromSuperview() }
+          completion: { [weak self] _ in self?.parkInBar(glassView) }
         )
       } else {
         settle()
-        glassView.removeFromSuperview()
+        parkInBar(glassView)
       }
     }
 
