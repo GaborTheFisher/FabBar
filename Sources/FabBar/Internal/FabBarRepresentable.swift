@@ -10,6 +10,7 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   var tabs: [FabBarTab<Value>]
   var action: FabBarAction
   var secondaryActions: [FabBarAction]
+  var isSecondaryActionMenuEnabled: Bool
   var collapseTrigger: Int
 
   @Binding var activeTab: Value
@@ -46,7 +47,8 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
       segmentedControl: control,
       tabCount: tabs.count,
       action: action,
-      secondaryActions: secondaryActions
+      secondaryActions: secondaryActions,
+      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled
     )
 
     return container
@@ -54,6 +56,10 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
 
   func updateUIView(_ uiView: GlassTabBarView, context: Context) {
     context.coordinator.parent = self
+    uiView.updatePrimaryAction(
+      action.action,
+      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled
+    )
 
     let control = uiView.segmentedControl
     control.selectedSegmentTintColor = segmentTintColor(for: uiView.traitCollection)

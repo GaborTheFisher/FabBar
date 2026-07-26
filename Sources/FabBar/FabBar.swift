@@ -46,6 +46,13 @@ public struct FabBar<Value: Hashable>: View {
 
   public var secondaryActions: [FabBarAction]
 
+  /// Whether tapping the primary button may reveal `secondaryActions`.
+  ///
+  /// Update this value when the same bar should act directly in some app
+  /// states and expose its secondary menu in others. Disabling the menu also
+  /// collapses it if it is currently visible.
+  public var isSecondaryActionMenuEnabled: Bool
+
   /// Increment this value to collapse any expanded secondary actions.
   public var collapseTrigger: Int
 
@@ -56,18 +63,21 @@ public struct FabBar<Value: Hashable>: View {
   ///   - tabs: The tabs to display.
   ///   - action: The floating action button configuration.
   ///   - secondaryActions: Optional actions shown when tapping the floating action button.
+  ///   - isSecondaryActionMenuEnabled: Whether tapping may reveal secondary actions.
   ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
   public init(
     selection: Binding<Value>,
     tabs: [FabBarTab<Value>],
     action: FabBarAction,
     secondaryActions: [FabBarAction] = [],
+    isSecondaryActionMenuEnabled: Bool = true,
     collapseTrigger: Int = 0
   ) {
     self._selection = selection
     self.tabs = tabs
     self.action = action
     self.secondaryActions = secondaryActions
+    self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
     self.collapseTrigger = collapseTrigger
   }
 
@@ -83,6 +93,7 @@ public struct FabBar<Value: Hashable>: View {
         tabs: tabs,
         action: action,
         secondaryActions: secondaryActions,
+        isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
         collapseTrigger: collapseTrigger,
         activeTab: $selection
       )
@@ -156,6 +167,7 @@ private struct SecondaryActionLabel: View {
 }
 
 @available(iOS 26.0, *)
+@MainActor
 private func makeSecondaryAction(
   systemImage: String,
   title: String
