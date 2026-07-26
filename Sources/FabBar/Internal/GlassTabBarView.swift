@@ -27,7 +27,9 @@ final class GlassTabBarView: UIView {
 
   private let secondaryActions: [FabBarAction]
   private var secondaryItems: [SecondaryItem] = []
-  private var isExpanded = false
+  private(set) var isExpanded = false
+  private var primaryAction: () -> Void
+  private var isSecondaryActionMenuEnabled: Bool
   private var backdropView: UIView?
 
   /// Spacing between the FAB and the first pill / between pills.
@@ -43,11 +45,14 @@ final class GlassTabBarView: UIView {
     segmentedControl: TabBarSegmentedControl,
     tabCount: Int,
     action: FabBarAction,
-    secondaryActions: [FabBarAction]
+    secondaryActions: [FabBarAction],
+    isSecondaryActionMenuEnabled: Bool
   ) {
     self.segmentedControl = segmentedControl
     self.tabCount = tabCount
     self.secondaryActions = secondaryActions
+    self.primaryAction = action.action
+    self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
 
     // Create glass container effect for morphing
     let containerEffect = UIGlassContainerEffect()
@@ -97,14 +102,14 @@ final class GlassTabBarView: UIView {
     fabGlassView.tintAdjustmentMode = .automatic
     fabButton.tintAdjustmentMode = .automatic
 
-    setupViews(action: action)
+    setupViews()
 
     if !secondaryActions.isEmpty {
       setupSecondaryActions()
     }
   }
 
-  private func setupViews(action: FabBarAction) {
+  private func setupViews() {
     // Add container effect view
     addSubview(containerEffectView)
     containerEffectView.translatesAutoresizingMaskIntoConstraints = false
@@ -124,12 +129,12 @@ final class GlassTabBarView: UIView {
     fabGlassView.contentView.addSubview(fabButton)
     fabButton.translatesAutoresizingMaskIntoConstraints = false
 
-    // Wire FAB tap: toggle expansion when secondary actions exist, otherwise fire directly
-    if secondaryActions.isEmpty {
-      fabButton.addAction(UIAction { _ in action.action() }, for: .touchUpInside)
-    } else {
-      fabButton.addAction(UIAction { [weak self] _ in self?.toggleExpansion(action.action) }, for: .touchUpInside)
-    }
+    // Keep one UIKit control in charge of both direct and expandable modes.
+    // The mode is updated by the representable as the surrounding app state
+    // changes, avoiding a competing SwiftUI hit target above this button.
+    fabButton.addAction(UIAction { [weak self] _ in
+      self?.primaryButtonTapped()
+    }, for: .touchUpInside)
 
     // Extra bottom inset compensates for UISegmentedControl's internal padding,
     // visually centering the content within the glass container.
@@ -185,6 +190,24 @@ final class GlassTabBarView: UIView {
     segmentedTrailingConstraint?.isActive = false
     segmentedTrailingConstraint = makeSegmentedTrailingConstraint()
     segmentedTrailingConstraint?.isActive = true
+  }
+
+  /// Reconciles the current SwiftUI action and menu mode without rebuilding
+  /// the UIKit bar. Turning the menu off hides any already-expanded pills
+  /// immediately so a simultaneous sheet presentation cannot expose them.
+  func updatePrimaryAction(
+    _ action: @escaping () -> Void,
+    isSecondaryActionMenuEnabled: Bool
+  ) {
+    primaryAction = action
+    guard self.isSecondaryActionMenuEnabled != isSecondaryActionMenuEnabled else {
+      return
+    }
+
+    self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
+    if !isSecondaryActionMenuEnabled {
+      collapse(animated: false)
+    }
   }
 
   // MARK: - Secondary Actions
@@ -296,10 +319,18 @@ final class GlassTabBarView: UIView {
     ])
     glassView.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
     glassView.alpha = 0
+    glassView.isUserInteractionEnabled = false
+    glassView.isHidden = true
   }
 
-  private func toggleExpansion(_ action: @escaping () -> Void) {
-    action()
+  private func primaryButtonTapped() {
+    primaryAction()
+
+    guard isSecondaryActionMenuEnabled, !secondaryItems.isEmpty else {
+      collapse(animated: false)
+      return
+    }
+
     if isExpanded { collapse() } else { expand() }
   }
 
@@ -341,6 +372,8 @@ final class GlassTabBarView: UIView {
 
     for (index, item) in secondaryItems.enumerated() {
       let glassView = item.glassView
+      glassView.isHidden = false
+      glassView.isUserInteractionEnabled = true
       glassView.transform = .identity
       glassView.alpha = 0
       // Reparent from the bar to the window; the bar-relative constraints drop

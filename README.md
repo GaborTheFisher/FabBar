@@ -161,6 +161,24 @@ FabBar(
 }
 ```
 
+### Conditional Secondary Actions
+
+Keep secondary actions warm while allowing the primary button to act directly
+outside the app state where the menu is relevant:
+
+```swift
+FabBar(
+    selection: $selectedTab,
+    tabs: tabs,
+    action: action,
+    secondaryActions: secondaryActions,
+    isSecondaryActionMenuEnabled: selectedTab == .compose
+)
+```
+
+Changing `isSecondaryActionMenuEnabled` does not rebuild the UIKit bar. Turning
+it off also collapses an open secondary-action menu.
+
 ### Manual Positioning
 
 For more control, use the `FabBar` view directly instead of the modifier. Apply 21pt padding on all sides:
