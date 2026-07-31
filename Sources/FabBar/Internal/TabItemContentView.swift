@@ -1,5 +1,11 @@
 import UIKit
 
+@available(iOS 26.0, *)
+enum FabBarTabItemLayout: Int, Sendable {
+  case stacked
+  case inline
+}
+
 /// A custom-draw view that renders a tab item (SF Symbol icon + title) at the current graphics context scale.
 ///
 /// This view supports `NSCoding` so it survives the system accessibility popover's archive/unarchive cycle.
@@ -13,23 +19,38 @@ final class TabItemContentView: UIView {
   private var customImageName: String = ""
   private var customImageBundleIdentifier: String = ""
   private var title: String = ""
+  private(set) var layout: FabBarTabItemLayout = .stacked
+  private(set) var showsInlineTitle = true
 
-  private let font = UIFont.systemFont(ofSize: Constants.tabTitleFontSize, weight: .semibold)
-  private let imageAreaHeight = Constants.iconViewSize
+  private var font: UIFont {
+    UIFont.systemFont(
+      ofSize: layout == .inline
+        ? Constants.inlineTabTitleFontSize
+        : Constants.tabTitleFontSize,
+      weight: .semibold
+    )
+  }
 
-  init(title: String, symbolName: String) {
+  init(title: String, symbolName: String, layout: FabBarTabItemLayout = .stacked) {
     self.title = title
     self.symbolName = symbolName
+    self.layout = layout
     super.init(frame: .zero)
     isOpaque = false
     isUserInteractionEnabled = false
     contentMode = .redraw
   }
 
-  init(title: String, imageName: String, imageBundle: Bundle?) {
+  init(
+    title: String,
+    imageName: String,
+    imageBundle: Bundle?,
+    layout: FabBarTabItemLayout = .stacked
+  ) {
     self.title = title
     self.customImageName = imageName
     self.customImageBundleIdentifier = imageBundle?.bundleIdentifier ?? ""
+    self.layout = layout
     super.init(frame: .zero)
     isOpaque = false
     isUserInteractionEnabled = false
@@ -43,6 +64,10 @@ final class TabItemContentView: UIView {
     self.customImageName = coder.decodeObject(forKey: "customImageName") as? String ?? ""
     self.customImageBundleIdentifier = coder.decodeObject(forKey: "customImageBundleIdentifier") as? String ?? ""
     self.title = coder.decodeObject(forKey: "title") as? String ?? ""
+    self.layout = FabBarTabItemLayout(rawValue: coder.decodeInteger(forKey: "layout")) ?? .stacked
+    self.showsInlineTitle = coder.containsValue(forKey: "showsInlineTitle")
+      ? coder.decodeBool(forKey: "showsInlineTitle")
+      : true
     super.init(coder: coder)
     // When unarchived by the accessibility popover, hide this view so only the
     // native segment labels are visible. The system renders those at popover scale.
@@ -55,6 +80,18 @@ final class TabItemContentView: UIView {
     coder.encode(customImageName, forKey: "customImageName")
     coder.encode(customImageBundleIdentifier, forKey: "customImageBundleIdentifier")
     coder.encode(title, forKey: "title")
+    coder.encode(layout.rawValue, forKey: "layout")
+    coder.encode(showsInlineTitle, forKey: "showsInlineTitle")
+  }
+
+  /// Keeps the compact presentation mounted while allowing its labels to
+  /// collapse at an exceptionally narrow local proposal. The intrinsic size
+  /// remains the labeled ideal so widening the window restores the reference
+  /// treatment automatically.
+  func setShowsInlineTitle(_ showsInlineTitle: Bool) {
+    guard self.showsInlineTitle != showsInlineTitle else { return }
+    self.showsInlineTitle = showsInlineTitle
+    setNeedsDisplay()
   }
 
   override func tintColorDidChange() {
@@ -67,9 +104,20 @@ final class TabItemContentView: UIView {
   override var intrinsicContentSize: CGSize {
     let textSize = (title as NSString).size(withAttributes: [.font: font])
     let icon = loadIcon()
-    let contentWidth = max(icon?.size.width ?? 0, textSize.width)
-    let height = imageAreaHeight + textSize.height
-    return CGSize(width: contentWidth, height: height)
+    switch layout {
+    case .stacked:
+      let contentWidth = max(icon?.size.width ?? 0, textSize.width)
+      return CGSize(width: contentWidth, height: Constants.iconViewSize + textSize.height)
+    case .inline:
+      let hasIcon = icon != nil
+      let hasTitle = !title.isEmpty
+      let iconWidth = hasIcon ? Constants.iconViewSize : 0
+      let spacing = hasIcon && hasTitle ? Constants.inlineIconTitleSpacing : 0
+      return CGSize(
+        width: iconWidth + spacing + textSize.width,
+        height: max(Constants.iconViewSize, ceil(textSize.height))
+      )
+    }
   }
 
   // MARK: - Drawing
@@ -84,24 +132,12 @@ final class TabItemContentView: UIView {
     ]
     let textSize = (title as NSString).size(withAttributes: textAttributes)
 
-    let contentNudgeUp: CGFloat = 1
-    let iconTextGap: CGFloat = 1
-
-    // Draw icon centered in top area
-    if let icon {
-      let imageSize = icon.size
-      let imageX = (bounds.width - imageSize.width) / 2
-      let imageY = (imageAreaHeight - imageSize.height) / 2 - contentNudgeUp
-      let imageRect = CGRect(x: imageX, y: imageY, width: imageSize.width, height: imageSize.height)
-
-      tintColor.setFill()
-      icon.withRenderingMode(.alwaysTemplate).draw(in: imageRect)
+    switch layout {
+    case .stacked:
+      drawStacked(icon: icon, textSize: textSize, textAttributes: textAttributes, tintColor: tintColor)
+    case .inline:
+      drawInline(icon: icon, textSize: textSize, textAttributes: textAttributes, tintColor: tintColor)
     }
-
-    // Draw text centered below icon area
-    let textX = (bounds.width - textSize.width) / 2
-    let textPoint = CGPoint(x: textX, y: imageAreaHeight - contentNudgeUp + iconTextGap)
-    (title as NSString).draw(at: textPoint, withAttributes: textAttributes)
   }
 
   // MARK: - Private
@@ -126,5 +162,67 @@ final class TabItemContentView: UIView {
     }
 
     return nil
+  }
+
+  private func drawStacked(
+    icon: UIImage?,
+    textSize: CGSize,
+    textAttributes: [NSAttributedString.Key: Any],
+    tintColor: UIColor
+  ) {
+    let contentNudgeUp: CGFloat = 1
+    let iconTextGap: CGFloat = 1
+
+    if let icon {
+      let imageSize = icon.size
+      let imageX = (bounds.width - imageSize.width) / 2
+      let imageY = (Constants.iconViewSize - imageSize.height) / 2 - contentNudgeUp
+      tintColor.setFill()
+      icon.withRenderingMode(.alwaysTemplate).draw(
+        in: CGRect(x: imageX, y: imageY, width: imageSize.width, height: imageSize.height)
+      )
+    }
+
+    let textX = (bounds.width - textSize.width) / 2
+    let textPoint = CGPoint(
+      x: textX,
+      y: Constants.iconViewSize - contentNudgeUp + iconTextGap
+    )
+    (title as NSString).draw(at: textPoint, withAttributes: textAttributes)
+  }
+
+  private func drawInline(
+    icon: UIImage?,
+    textSize: CGSize,
+    textAttributes: [NSAttributedString.Key: Any],
+    tintColor: UIColor
+  ) {
+    let hasIcon = icon != nil
+    let hasTitle = showsInlineTitle && !title.isEmpty
+    let iconWidth = hasIcon ? Constants.iconViewSize : 0
+    let spacing = hasIcon && hasTitle ? Constants.inlineIconTitleSpacing : 0
+    let visibleTextWidth = hasTitle ? textSize.width : 0
+    let contentWidth = iconWidth + spacing + visibleTextWidth
+    let contentX = (bounds.width - contentWidth) / 2
+
+    if let icon {
+      let imageSize = icon.size
+      let imageRect = CGRect(
+        x: contentX + (Constants.iconViewSize - imageSize.width) / 2,
+        y: (bounds.height - imageSize.height) / 2,
+        width: imageSize.width,
+        height: imageSize.height
+      )
+      tintColor.setFill()
+      icon.withRenderingMode(.alwaysTemplate).draw(in: imageRect)
+    }
+
+    if hasTitle {
+      let textPoint = CGPoint(
+        x: contentX + iconWidth + spacing,
+        y: (bounds.height - textSize.height) / 2
+      )
+      (title as NSString).draw(at: textPoint, withAttributes: textAttributes)
+    }
   }
 }

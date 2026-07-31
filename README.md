@@ -96,9 +96,46 @@ struct ContentView: View {
 }
 ```
 
-The `.fabBar()` modifier handles positioning, safe area management, and automatically hides on iPad (showing the native tab bar instead). Use `.fabBarSafeAreaPadding()` on scrollable content within each tab to ensure content isn't hidden behind the bar.
+The `.fabBar()` modifier handles positioning and safe area management. It keeps
+tab navigation visible on iPad and other regular-width windows, where it is
+centered and width-capped. If your regular-width layout provides another
+visible surface for switching every tab, opt out explicitly with
+`regularWidthBehavior: .hiddenWhenAlternativeNavigationIsProvided`. Use
+`.fabBarSafeAreaPadding()` on scrollable content within each tab to ensure
+content isn't hidden behind the bar; the padding follows the bar's measured
+frame and therefore updates with its density and live window layout.
 
 For more control over positioning, you can use the `FabBar` view directly.
+
+### Adaptive Density
+
+`FabBarDensity` controls both height and the coarse tab presentation:
+
+- `.regular` uses a 62pt, available-width strip with each label below its icon.
+- `.compact` uses a 52pt, content-hugging strip with each label trailing its
+  icon. Segment widths follow their localized icon-label content, so the glass
+  capsule is only as wide as its controls. If that intrinsic width cannot fit
+  the local proposal, all labels collapse together and the icon-only tabs
+  share the remaining width; no tab or primary action is hidden or overflowed.
+
+FabBar deliberately does not read size classes itself. Choose the density in
+the host and keep exact obstruction/inset calculations tied to the measured
+bar frame:
+
+```swift
+@Environment(\.verticalSizeClass) private var verticalSizeClass
+
+FabBar(
+    selection: $selectedTab,
+    tabs: tabs,
+    action: action,
+    density: verticalSizeClass == .compact ? .compact : .regular
+)
+```
+
+Switching density while mounted preserves selection and hosted action content.
+An expanded secondary-action menu collapses when the presentation changes so
+its window-space anchors cannot go stale during a resize.
 
 ### Custom Images
 

@@ -1,6 +1,15 @@
 import SwiftUI
 import UIKit
 
+@available(iOS 26.0, *)
+struct FabBarTabPresentationSignature: Equatable {
+  let value: AnyHashable
+  let title: String
+  let systemImage: String?
+  let image: String?
+  let imageBundlePath: String?
+}
+
 /// A UIViewRepresentable that wraps a TabBarSegmentedControl for tab bar functionality.
 /// Tab content (icon + label) is injected directly into each segment's view subtree so that
 /// the glass magnification effect applies to the content. SF Symbols remain vector-based
@@ -12,6 +21,7 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   var secondaryActions: [FabBarAction]
   var isSecondaryActionMenuEnabled: Bool
   var collapseTrigger: Int
+  var density: FabBarDensity
 
   @Binding var activeTab: Value
 
@@ -28,7 +38,7 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
     let selectedIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
     control.selectedSegmentIndex = selectedIndex
 
-    configureSegmentContent(on: control)
+    let preferredCompactSegmentWidths = configureSegmentContent(on: control)
     control.selectedSegmentTintColor = segmentTintColor(for: control.traitCollection)
 
     control.addTarget(context.coordinator, action: #selector(context.coordinator.tabSelected(_:)), for: .valueChanged)
@@ -48,10 +58,26 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
       tabCount: tabs.count,
       action: action,
       secondaryActions: secondaryActions,
-      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled
+      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
+      density: density
     )
+    container.updatePreferredCompactSegmentWidths(preferredCompactSegmentWidths)
 
     return container
+  }
+
+  func sizeThatFits(
+    _ proposal: ProposedViewSize,
+    uiView: GlassTabBarView,
+    context _: Context
+  ) -> CGSize? {
+    guard density.hugsContentHorizontally else { return nil }
+    let preferred = uiView.intrinsicContentSize
+    let availableWidth = proposal.width ?? preferred.width
+    return CGSize(
+      width: max(0, min(preferred.width, availableWidth)),
+      height: density.barHeight
+    )
   }
 
   func updateUIView(_ uiView: GlassTabBarView, context: Context) {
@@ -64,9 +90,16 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
     let control = uiView.segmentedControl
     control.selectedSegmentTintColor = segmentTintColor(for: uiView.traitCollection)
 
-    // Sync segments when tabs change (count, order, or identity)
+    // Sync segments when tabs change (count, order, or identity), or rebuild
+    // their content when the host switches between stacked and inline
+    // density while this representable remains mounted.
     let currentTabValues = tabs.map(\.value)
-    if currentTabValues != context.coordinator.previousTabValues {
+    let currentPresentationSignatures = tabPresentationSignatures
+    let tabsChanged = currentTabValues != context.coordinator.previousTabValues
+    let presentationChanged = currentPresentationSignatures
+      != context.coordinator.previousPresentationSignatures
+    let densityChanged = density != context.coordinator.previousDensity
+    if tabsChanged {
       context.coordinator.previousTabValues = currentTabValues
 
       // Rebuild all segments — configureSegmentContent replaces all
@@ -80,9 +113,15 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
           animated: false
         )
       }
-
-      configureSegmentContent(on: control)
       uiView.updateTabCount(tabs.count)
+    }
+
+    if tabsChanged || presentationChanged || densityChanged {
+      context.coordinator.previousPresentationSignatures = currentPresentationSignatures
+      context.coordinator.previousDensity = density
+      let preferredCompactSegmentWidths = configureSegmentContent(on: control)
+      uiView.updatePreferredCompactSegmentWidths(preferredCompactSegmentWidths)
+      uiView.updateDensity(density)
     }
 
     let newIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
@@ -104,8 +143,12 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
     }
   }
 
+  static func dismantleUIView(_ uiView: GlassTabBarView, coordinator _: Coordinator) {
+    uiView.prepareForRemoval()
+  }
+
   /// Sets accessibility titles, injects content views, and configures segment widths.
-  private func configureSegmentContent(on control: TabBarSegmentedControl) {
+  private func configureSegmentContent(on control: TabBarSegmentedControl) -> [CGFloat] {
     for (index, tab) in tabs.enumerated() {
       control.setTitle(tab.resolvedTitle, forSegmentAt: index)
     }
@@ -119,17 +162,54 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
     let accentViews = tabs.map(makeContentView)
     control.configureContentViews(baseViews, accentViews: accentViews)
 
-    // Fixed width for <3 tabs (glass floats leading-aligned); 0 for 3+ (auto-distribute)
+    // Regular density keeps the existing equal, available-width segments.
+    // Compact density sizes each selection pill from its own icon-label pair,
+    // which lets the complete glass bar hug localized content.
+    var preferredCompactSegmentWidths: [CGFloat] = []
     for index in 0..<tabs.count {
-      control.setWidth(tabs.count < 3 ? Constants.fewTabsSegmentWidth : 0, forSegmentAt: index)
+      let width: CGFloat
+      switch density.tabItemLayout {
+      case .stacked:
+        width = tabs.count < 3 ? Constants.fewTabsSegmentWidth : 0
+      case .inline:
+        width = max(
+          Constants.minimumInlineSegmentWidth,
+          ceil(baseViews[index].intrinsicContentSize.width)
+            + Constants.inlineSegmentHorizontalPadding * 2
+        )
+        preferredCompactSegmentWidths.append(width)
+      }
+      control.setWidth(width, forSegmentAt: index)
+    }
+    return preferredCompactSegmentWidths
+  }
+
+  private var tabPresentationSignatures: [FabBarTabPresentationSignature] {
+    tabs.map { tab in
+      FabBarTabPresentationSignature(
+        value: AnyHashable(tab.value),
+        title: tab.resolvedTitle,
+        systemImage: tab.systemImage,
+        image: tab.image,
+        imageBundlePath: tab.imageBundle?.bundleURL.path
+      )
     }
   }
 
   private func makeContentView(for tab: FabBarTab<Value>) -> TabItemContentView {
     if let imageName = tab.image {
-      TabItemContentView(title: tab.resolvedTitle, imageName: imageName, imageBundle: tab.imageBundle)
+      TabItemContentView(
+        title: tab.resolvedTitle,
+        imageName: imageName,
+        imageBundle: tab.imageBundle,
+        layout: density.tabItemLayout
+      )
     } else {
-      TabItemContentView(title: tab.resolvedTitle, symbolName: tab.systemImage ?? "")
+      TabItemContentView(
+        title: tab.resolvedTitle,
+        symbolName: tab.systemImage ?? "",
+        layout: density.tabItemLayout
+      )
     }
   }
 
@@ -146,12 +226,16 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   class Coordinator: NSObject {
     var parent: FabBarRepresentable<Value>
     var previousTabValues: [Value]
+    var previousPresentationSignatures: [FabBarTabPresentationSignature]
     var previousCollapseTrigger: Int
+    var previousDensity: FabBarDensity
 
     init(parent: FabBarRepresentable<Value>) {
       self.parent = parent
       self.previousTabValues = parent.tabs.map(\.value)
+      self.previousPresentationSignatures = parent.tabPresentationSignatures
       self.previousCollapseTrigger = parent.collapseTrigger
+      self.previousDensity = parent.density
     }
 
     @objc func tabSelected(_ control: UISegmentedControl) {

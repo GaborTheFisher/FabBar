@@ -15,6 +15,9 @@ final class GlassTabBarView: UIView {
 
   private(set) var tabCount: Int
   private var segmentedTrailingConstraint: NSLayoutConstraint?
+  private var density: FabBarDensity
+  private var preferredCompactSegmentWidths: [CGFloat] = []
+  private(set) var isCompactContentCollapsed = false
 
   /// A pre-built secondary action view, parked off-screen until the menu
   /// expands. `isCircle` icon-only pills match the FAB width; custom-view
@@ -35,24 +38,27 @@ final class GlassTabBarView: UIView {
   /// Spacing between the FAB and the first pill / between pills.
   private let secondaryGap: CGFloat = 12
 
-  /// Window size captured when the menu expanded. The expanded pills are
-  /// hosted in the window pinned to the FAB's position at expand time, so a
-  /// rotation or scene resize would leave them stranded — when the size
-  /// changes we collapse instead.
-  private var expandedWindowSize: CGSize = .zero
+  /// Geometry captured when the menu expanded. The pills use window-space
+  /// constraints, so any window, container, density, or FAB-frame change
+  /// invalidates their anchor and collapses the menu.
+  private var expandedWindowBounds: CGRect = .zero
+  private var expandedBarBounds: CGRect = .zero
+  private var expandedFABFrame: CGRect = .zero
 
   init(
     segmentedControl: TabBarSegmentedControl,
     tabCount: Int,
     action: FabBarAction,
     secondaryActions: [FabBarAction],
-    isSecondaryActionMenuEnabled: Bool
+    isSecondaryActionMenuEnabled: Bool,
+    density: FabBarDensity = .regular
   ) {
     self.segmentedControl = segmentedControl
     self.tabCount = tabCount
     self.secondaryActions = secondaryActions
     self.primaryAction = action.action
     self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
+    self.density = density
 
     // Create glass container effect for morphing
     let containerEffect = UIGlassContainerEffect()
@@ -173,10 +179,12 @@ final class GlassTabBarView: UIView {
     segmentedTrailingConstraint?.isActive = true
   }
 
-  /// Creates the appropriate trailing constraint for the segmented glass view.
-  /// For 3+ tabs, fills to the FAB. For fewer tabs, floats leading-aligned.
+  /// Creates the appropriate trailing constraint for the segmented glass
+  /// view. Compact density always uses equality because the root view has a
+  /// determinate intrinsic width. Regular density fills for 3+ tabs and keeps
+  /// the historical leading-aligned treatment for fewer tabs.
   private func makeSegmentedTrailingConstraint() -> NSLayoutConstraint {
-    if tabCount >= 3 {
+    if density.hugsContentHorizontally || tabCount >= 3 {
       segmentedGlassView.trailingAnchor.constraint(equalTo: fabGlassView.leadingAnchor, constant: -spacing)
     } else {
       segmentedGlassView.trailingAnchor.constraint(lessThanOrEqualTo: fabGlassView.leadingAnchor, constant: -spacing)
@@ -190,6 +198,32 @@ final class GlassTabBarView: UIView {
     segmentedTrailingConstraint?.isActive = false
     segmentedTrailingConstraint = makeSegmentedTrailingConstraint()
     segmentedTrailingConstraint?.isActive = true
+    invalidateIntrinsicContentSize()
+  }
+
+  /// Updates the coarse stacked/inline presentation without replacing the
+  /// UIKit bar or its hosted SwiftUI controllers.
+  func updateDensity(_ newDensity: FabBarDensity) {
+    if density != newDensity {
+      collapse(animated: false)
+      density = newDensity
+      segmentedTrailingConstraint?.isActive = false
+      segmentedTrailingConstraint = makeSegmentedTrailingConstraint()
+      segmentedTrailingConstraint?.isActive = true
+    }
+    invalidateIntrinsicContentSize()
+    setNeedsLayout()
+  }
+
+  /// Stores the labeled compact widths independently of the widths currently
+  /// applied to `UISegmentedControl`. A narrow layout may temporarily replace
+  /// them with equal icon-only segments; keeping the ideals here lets a later
+  /// resize restore the variable-width labeled strip.
+  func updatePreferredCompactSegmentWidths(_ widths: [CGFloat]) {
+    guard preferredCompactSegmentWidths != widths else { return }
+    preferredCompactSegmentWidths = widths
+    invalidateIntrinsicContentSize()
+    setNeedsLayout()
   }
 
   /// Reconciles the current SwiftUI action and menu mode without rebuilding
@@ -363,10 +397,12 @@ final class GlassTabBarView: UIView {
   private func expand() {
     guard !isExpanded, !secondaryItems.isEmpty, let window else { return }
     isExpanded = true
-    expandedWindowSize = window.bounds.size
+    expandedWindowBounds = window.bounds
+    expandedBarBounds = bounds
 
     // FAB rect in window space — the anchor everything fans out from.
     let fab = fabGlassView.convert(fabGlassView.bounds, to: window)
+    expandedFABFrame = fab
 
     addBackdrop(to: window)
 
@@ -414,6 +450,14 @@ final class GlassTabBarView: UIView {
     collapse(animated: true)
   }
 
+  /// Synchronously removes any window-hosted expansion UI before this bar is
+  /// dismantled or detached. Without this cleanup, the backdrop and pills can
+  /// outlive the representable and continue intercepting touches in the old
+  /// window.
+  func prepareForRemoval() {
+    collapse(animated: false)
+  }
+
   private func collapse(animated: Bool = true) {
     guard isExpanded else { return }
     isExpanded = false
@@ -453,7 +497,27 @@ final class GlassTabBarView: UIView {
     fatalError("init(coder:) has not been implemented")
   }
 
+  override var intrinsicContentSize: CGSize {
+    guard density.hugsContentHorizontally else {
+      return CGSize(width: UIView.noIntrinsicMetric, height: density.barHeight)
+    }
+
+    let segmentedWidth = preferredCompactSegmentWidths.isEmpty
+      ? (0..<segmentedControl.numberOfSegments).reduce(CGFloat.zero) {
+          $0 + segmentedControl.widthForSegment(at: $1)
+        }
+      : preferredCompactSegmentWidths.reduce(0, +)
+    return CGSize(
+      width: ceil(segmentedWidth)
+        + contentPadding * 2
+        + spacing
+        + density.barHeight,
+      height: density.barHeight
+    )
+  }
+
   override func layoutSubviews() {
+    updateCompactSegmentSizingForCurrentBounds()
     super.layoutSubviews()
 
     // Capsule shape for segmented control
@@ -462,11 +526,67 @@ final class GlassTabBarView: UIView {
     // Circle shape for FAB button (capsule with equal width/height = circle)
     fabGlassView.cornerConfiguration = .capsule()
 
-    // The expanded pills live in the window at absolute frames anchored to the
-    // FAB's position at expand time. A rotation or scene resize moves the FAB
-    // but not the pills, so collapse them rather than leave them misplaced.
-    if isExpanded, let window, window.bounds.size != expandedWindowSize {
+    // The expanded pills live in the window at an anchor captured at expand
+    // time. Collapse if a resize, density change, or ancestor layout moves or
+    // resizes the FAB within the same window.
+    guard isExpanded, let window else { return }
+    let currentFABFrame = fabGlassView.convert(fabGlassView.bounds, to: window)
+    if window.bounds != expandedWindowBounds
+      || bounds != expandedBarBounds
+      || currentFABFrame != expandedFABFrame
+    {
       collapse(animated: false)
+    }
+  }
+
+  /// Keeps every tab and the FAB inside the locally proposed width. The
+  /// reference inline labels remain visible whenever their intrinsic widths
+  /// fit; at narrower widths the labels collapse together and the tabs share
+  /// the remaining space instead of clipping or overflowing.
+  private func updateCompactSegmentSizingForCurrentBounds() {
+    guard density.hugsContentHorizontally,
+          bounds.width > 0,
+          preferredCompactSegmentWidths.count == segmentedControl.numberOfSegments,
+          !preferredCompactSegmentWidths.isEmpty else {
+      if isCompactContentCollapsed {
+        isCompactContentCollapsed = false
+        segmentedControl.setInlineTitlesVisible(true)
+      }
+      return
+    }
+
+    let fixedChromeWidth = contentPadding * 2 + spacing + bounds.height
+    let availableSegmentWidth = max(0, bounds.width - fixedChromeWidth)
+    let preferredWidth = preferredCompactSegmentWidths.reduce(0, +)
+    let shouldCollapse = availableSegmentWidth + 0.5 < preferredWidth
+    let appliedWidths: [CGFloat]
+    if shouldCollapse {
+      let equalWidth = availableSegmentWidth / CGFloat(preferredCompactSegmentWidths.count)
+      appliedWidths = Array(
+        repeating: equalWidth,
+        count: preferredCompactSegmentWidths.count
+      )
+    } else {
+      appliedWidths = preferredCompactSegmentWidths
+    }
+
+    for (index, width) in appliedWidths.enumerated()
+      where abs(segmentedControl.widthForSegment(at: index) - width) > 0.5
+    {
+      segmentedControl.setWidth(width, forSegmentAt: index)
+    }
+
+    if isCompactContentCollapsed != shouldCollapse {
+      isCompactContentCollapsed = shouldCollapse
+      segmentedControl.setInlineTitlesVisible(!shouldCollapse)
+      segmentedControl.setNeedsLayout()
+    }
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil {
+      prepareForRemoval()
     }
   }
 
