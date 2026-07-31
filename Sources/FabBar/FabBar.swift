@@ -33,6 +33,30 @@ import SwiftUI
 ///
 /// For more control over positioning, you can use the `FabBar` view directly.
 
+/// Coarse density presets for the bar.
+///
+/// Density is a plain parameter — the package never reads size classes or
+/// window geometry itself. Hosts that adapt to compact window heights pass
+/// `.compact`; everything inside the bar (FAB diameter, pill heights,
+/// capsule corners) derives from the framed height, so no other knob is
+/// needed.
+@available(iOS 26.0, *)
+public enum FabBarDensity: Sendable, Equatable {
+  /// The standard 62pt bar.
+  case regular
+  /// A 52pt bar for compact-height windows. The interior still fits the
+  /// icon-plus-title tab items (52 − 2 × content padding − 1 ≥ the ~40pt
+  /// tab-item intrinsic height), so no icon-only fallback is required.
+  case compact
+
+  var barHeight: CGFloat {
+    switch self {
+    case .regular: Constants.barHeight
+    case .compact: Constants.compactBarHeight
+    }
+  }
+}
+
 @available(iOS 26.0, *)
 public struct FabBar<Value: Hashable>: View {
   /// The currently selected tab.
@@ -56,6 +80,9 @@ public struct FabBar<Value: Hashable>: View {
   /// Increment this value to collapse any expanded secondary actions.
   public var collapseTrigger: Int
 
+  /// The coarse density preset the host selected.
+  public var density: FabBarDensity
+
   /// Creates a FabBar with the specified configuration.
   ///
   /// - Parameters:
@@ -65,13 +92,15 @@ public struct FabBar<Value: Hashable>: View {
   ///   - secondaryActions: Optional actions shown when tapping the floating action button.
   ///   - isSecondaryActionMenuEnabled: Whether tapping may reveal secondary actions.
   ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
+  ///   - density: Coarse density preset; pass `.compact` for compact-height windows.
   public init(
     selection: Binding<Value>,
     tabs: [FabBarTab<Value>],
     action: FabBarAction,
     secondaryActions: [FabBarAction] = [],
     isSecondaryActionMenuEnabled: Bool = true,
-    collapseTrigger: Int = 0
+    collapseTrigger: Int = 0,
+    density: FabBarDensity = .regular
   ) {
     self._selection = selection
     self.tabs = tabs
@@ -79,12 +108,13 @@ public struct FabBar<Value: Hashable>: View {
     self.secondaryActions = secondaryActions
     self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
     self.collapseTrigger = collapseTrigger
+    self.density = density
   }
 
   public var body: some View {
     if tabs.isEmpty {
       Color.clear
-        .frame(height: Constants.barHeight)
+        .frame(height: density.barHeight)
         .onAppear {
           fabBarLogger.warning("FabBar initialized with empty tabs array - nothing will be displayed")
         }
@@ -97,7 +127,7 @@ public struct FabBar<Value: Hashable>: View {
         collapseTrigger: collapseTrigger,
         activeTab: $selection
       )
-      .frame(height: Constants.barHeight)
+      .frame(height: density.barHeight)
     }
   }
 }

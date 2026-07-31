@@ -12,6 +12,13 @@ enum Constants {
     /// Matches the standard iOS tab bar height for visual consistency.
     static let barHeight: CGFloat = 62
 
+    /// Height of the bar in its compact density (`FabBarDensity.compact`),
+    /// for compact-height windows. 52 − 2 × `contentPadding` leaves a
+    /// ~47pt interior, which still fits the icon-plus-10pt-title tab item,
+    /// so compact keeps full labels. Every interior metric (FAB diameter,
+    /// pill heights, capsule corners) derives from the framed height.
+    static let compactBarHeight: CGFloat = 52
+
     /// Spacing between the segmented control and FAB.
     static let fabSpacing: CGFloat = 8
 
