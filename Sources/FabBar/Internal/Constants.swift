@@ -19,6 +19,11 @@ enum Constants {
     /// pill heights, capsule corners) derives from the framed height.
     static let compactBarHeight: CGFloat = 52
 
+    /// Maximum width of the glass bar on regular-width layouts. Keeping the
+    /// bar visible preserves tab navigation while preventing its controls from
+    /// stretching across an entire iPad or resizable window.
+    static let regularWidthMaximumBarWidth: CGFloat = 600
+
     /// Spacing between the segmented control and FAB.
     static let fabSpacing: CGFloat = 8
 

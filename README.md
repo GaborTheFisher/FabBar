@@ -96,7 +96,14 @@ struct ContentView: View {
 }
 ```
 
-The `.fabBar()` modifier handles positioning, safe area management, and automatically hides on iPad (showing the native tab bar instead). Use `.fabBarSafeAreaPadding()` on scrollable content within each tab to ensure content isn't hidden behind the bar.
+The `.fabBar()` modifier handles positioning and safe area management. It keeps
+tab navigation visible on iPad and other regular-width windows, where it is
+centered and width-capped. If your regular-width layout provides another
+visible surface for switching every tab, opt out explicitly with
+`regularWidthBehavior: .hiddenWhenAlternativeNavigationIsProvided`. Use
+`.fabBarSafeAreaPadding()` on scrollable content within each tab to ensure
+content isn't hidden behind the bar; the padding follows the bar's measured
+frame and therefore updates with its density and live window layout.
 
 For more control over positioning, you can use the `FabBar` view directly.
 

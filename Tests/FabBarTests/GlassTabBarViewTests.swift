@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 import XCTest
 @testable import FabBar
 
@@ -58,7 +59,96 @@ final class GlassTabBarViewTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
+  func testDensityHeightChangeInSameWindowCollapsesExpandedMenu() {
+    let subject = makeSubject(
+      isSecondaryActionMenuEnabled: true,
+      primaryAction: {}
+    )
+    let window = host(subject)
+    subject.fabButton.sendActions(for: .touchUpInside)
+    XCTAssertTrue(subject.isExpanded)
+
+    subject.frame.size.height = FabBarDensity.compact.barHeight
+    subject.setNeedsLayout()
+    subject.layoutIfNeeded()
+
+    XCTAssertFalse(subject.isExpanded)
+    withExtendedLifetime(window) {}
+  }
+
+  func testContainerMoveInSameWindowCollapsesExpandedMenu() {
+    let subject = makeSubject(
+      isSecondaryActionMenuEnabled: true,
+      primaryAction: {}
+    )
+    let window = host(subject)
+    subject.fabButton.sendActions(for: .touchUpInside)
+    XCTAssertTrue(subject.isExpanded)
+
+    subject.frame.origin.x += 20
+    subject.setNeedsLayout()
+    subject.layoutIfNeeded()
+
+    XCTAssertFalse(subject.isExpanded)
+    withExtendedLifetime(window) {}
+  }
+
+  func testExpandedHostedContentReceivesWindowTraitsBeforeResizeCollapsesMenu() {
+    let record = TraitRecord()
+    let hostedController = UIHostingController(
+      rootView: TraitProbeView(record: record)
+    )
+    let subject = makeSubject(
+      secondaryAction: FabBarAction(
+        systemImage: "square.and.pencil",
+        accessibilityLabel: "Secondary",
+        view: hostedController,
+        action: {}
+      ),
+      isSecondaryActionMenuEnabled: true,
+      primaryAction: {}
+    )
+    let window = host(subject)
+    window.traitOverrides.verticalSizeClass = .regular
+    window.layoutIfNeeded()
+    subject.fabButton.sendActions(for: .touchUpInside)
+    XCTAssertTrue(subject.isExpanded)
+
+    window.traitOverrides.verticalSizeClass = .compact
+    window.layoutIfNeeded()
+    XCTAssertTrue(waitUntil { record.verticalSizeClasses.contains(.compact) })
+    XCTAssertTrue(subject.isExpanded)
+
+    window.frame.size.height = 700
+    window.layoutIfNeeded()
+    subject.setNeedsLayout()
+    subject.layoutIfNeeded()
+
+    XCTAssertFalse(subject.isExpanded)
+    withExtendedLifetime((window, hostedController)) {}
+  }
+
+  func testRemovingExpandedBarCleansWindowHostedBackdropAndPills() {
+    let subject = makeSubject(
+      isSecondaryActionMenuEnabled: true,
+      primaryAction: {}
+    )
+    let window = host(subject)
+    subject.fabButton.sendActions(for: .touchUpInside)
+
+    XCTAssertTrue(subject.isExpanded)
+    XCTAssertGreaterThan(window.subviews.count, 1)
+
+    subject.removeFromSuperview()
+
+    XCTAssertNil(subject.window)
+    XCTAssertFalse(subject.isExpanded)
+    XCTAssertTrue(window.subviews.isEmpty)
+    withExtendedLifetime(window) {}
+  }
+
   private func makeSubject(
+    secondaryAction: FabBarAction? = nil,
     isSecondaryActionMenuEnabled: Bool,
     primaryAction: @escaping () -> Void
   ) -> GlassTabBarView {
@@ -74,7 +164,7 @@ final class GlassTabBarViewTests: XCTestCase {
         action: primaryAction
       ),
       secondaryActions: [
-        FabBarAction(
+        secondaryAction ?? FabBarAction(
           systemImage: "square.and.pencil",
           accessibilityLabel: "Secondary",
           action: {}
@@ -90,5 +180,35 @@ final class GlassTabBarViewTests: XCTestCase {
     window.addSubview(subject)
     window.layoutIfNeeded()
     return window
+  }
+
+  private func waitUntil(
+    timeout: TimeInterval = 2,
+    condition: () -> Bool
+  ) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition(), RunLoop.current.run(mode: .default, before: deadline) {}
+    return condition()
+  }
+
+  private final class TraitRecord {
+    var verticalSizeClasses: [UserInterfaceSizeClass?] = []
+  }
+
+  private struct TraitProbeView: View {
+    let record: TraitRecord
+
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    var body: some View {
+      Color.clear
+        .frame(width: 44, height: 44)
+        .onAppear {
+          record.verticalSizeClasses.append(verticalSizeClass)
+        }
+        .onChange(of: verticalSizeClass) { _, newValue in
+          record.verticalSizeClasses.append(newValue)
+        }
+    }
   }
 }

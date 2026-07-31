@@ -104,6 +104,10 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
     }
   }
 
+  static func dismantleUIView(_ uiView: GlassTabBarView, coordinator _: Coordinator) {
+    uiView.prepareForRemoval()
+  }
+
   /// Sets accessibility titles, injects content views, and configures segment widths.
   private func configureSegmentContent(on control: TabBarSegmentedControl) {
     for (index, tab) in tabs.enumerated() {

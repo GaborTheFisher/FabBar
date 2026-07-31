@@ -35,11 +35,12 @@ final class GlassTabBarView: UIView {
   /// Spacing between the FAB and the first pill / between pills.
   private let secondaryGap: CGFloat = 12
 
-  /// Window size captured when the menu expanded. The expanded pills are
-  /// hosted in the window pinned to the FAB's position at expand time, so a
-  /// rotation or scene resize would leave them stranded — when the size
-  /// changes we collapse instead.
-  private var expandedWindowSize: CGSize = .zero
+  /// Geometry captured when the menu expanded. The pills use window-space
+  /// constraints, so any window, container, density, or FAB-frame change
+  /// invalidates their anchor and collapses the menu.
+  private var expandedWindowBounds: CGRect = .zero
+  private var expandedBarBounds: CGRect = .zero
+  private var expandedFABFrame: CGRect = .zero
 
   init(
     segmentedControl: TabBarSegmentedControl,
@@ -363,10 +364,12 @@ final class GlassTabBarView: UIView {
   private func expand() {
     guard !isExpanded, !secondaryItems.isEmpty, let window else { return }
     isExpanded = true
-    expandedWindowSize = window.bounds.size
+    expandedWindowBounds = window.bounds
+    expandedBarBounds = bounds
 
     // FAB rect in window space — the anchor everything fans out from.
     let fab = fabGlassView.convert(fabGlassView.bounds, to: window)
+    expandedFABFrame = fab
 
     addBackdrop(to: window)
 
@@ -412,6 +415,14 @@ final class GlassTabBarView: UIView {
   /// Public entry point used by the representable's `collapseTrigger`.
   func collapseSecondaryActions() {
     collapse(animated: true)
+  }
+
+  /// Synchronously removes any window-hosted expansion UI before this bar is
+  /// dismantled or detached. Without this cleanup, the backdrop and pills can
+  /// outlive the representable and continue intercepting touches in the old
+  /// window.
+  func prepareForRemoval() {
+    collapse(animated: false)
   }
 
   private func collapse(animated: Bool = true) {
@@ -462,11 +473,23 @@ final class GlassTabBarView: UIView {
     // Circle shape for FAB button (capsule with equal width/height = circle)
     fabGlassView.cornerConfiguration = .capsule()
 
-    // The expanded pills live in the window at absolute frames anchored to the
-    // FAB's position at expand time. A rotation or scene resize moves the FAB
-    // but not the pills, so collapse them rather than leave them misplaced.
-    if isExpanded, let window, window.bounds.size != expandedWindowSize {
+    // The expanded pills live in the window at an anchor captured at expand
+    // time. Collapse if a resize, density change, or ancestor layout moves or
+    // resizes the FAB within the same window.
+    guard isExpanded, let window else { return }
+    let currentFABFrame = fabGlassView.convert(fabGlassView.bounds, to: window)
+    if window.bounds != expandedWindowBounds
+      || bounds != expandedBarBounds
+      || currentFABFrame != expandedFABFrame
+    {
       collapse(animated: false)
+    }
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil {
+      prepareForRemoval()
     }
   }
 

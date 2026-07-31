@@ -5,7 +5,8 @@ import SwiftUI
 @available(iOS 26.0, *)
 extension EnvironmentValues {
     /// The bottom safe area padding needed to clear the FabBar.
-    /// This is `barHeight + bottomPadding` minus the device's bottom safe area inset.
+    /// A `.fabBar()` modifier replaces this fallback with a value measured
+    /// from its currently rendered chrome.
     @Entry var fabBarBottomSafeAreaPadding: CGFloat = Constants.barHeight + Constants.bottomPadding
 }
 
