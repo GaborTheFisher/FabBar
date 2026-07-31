@@ -147,6 +147,72 @@ final class GlassTabBarViewTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
+  func testSwitchingToCompactDensityCollapsesAndPublishesContentWidth() {
+    let control = TabBarSegmentedControl(
+      items: [
+        UIImage(systemName: "circle")!,
+        UIImage(systemName: "square")!,
+        UIImage(systemName: "triangle")!,
+      ]
+    )
+    let widths: [CGFloat] = [72, 108, 84]
+    for (index, width) in widths.enumerated() {
+      control.setWidth(width, forSegmentAt: index)
+    }
+    let subject = GlassTabBarView(
+      segmentedControl: control,
+      tabCount: widths.count,
+      action: FabBarAction(systemImage: "plus", accessibilityLabel: "Primary", action: {}),
+      secondaryActions: [
+        FabBarAction(systemImage: "square.and.pencil", accessibilityLabel: "Secondary", action: {})
+      ],
+      isSecondaryActionMenuEnabled: true,
+      density: .regular
+    )
+    let window = host(subject)
+    subject.fabButton.sendActions(for: .touchUpInside)
+    XCTAssertTrue(subject.isExpanded)
+
+    subject.updateDensity(.compact)
+
+    XCTAssertFalse(subject.isExpanded)
+    XCTAssertEqual(
+      subject.intrinsicContentSize.width,
+      widths.reduce(0, +)
+        + Constants.contentPadding * 2
+        + Constants.fabSpacing
+        + FabBarDensity.compact.barHeight,
+      accuracy: 0.5
+    )
+    withExtendedLifetime(window) {}
+  }
+
+  func testVariableWidthSegmentsResolveTouchesFromTheirActualFrames() {
+    let control = TabBarSegmentedControl(
+      items: [
+        UIImage(systemName: "circle")!,
+        UIImage(systemName: "square")!,
+        UIImage(systemName: "triangle")!,
+      ]
+    )
+    for (index, width) in [CGFloat(62), 126, 78].enumerated() {
+      control.setWidth(width, forSegmentAt: index)
+    }
+    control.frame = CGRect(x: 20, y: 100, width: 266, height: 48)
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    window.addSubview(control)
+    window.layoutIfNeeded()
+    control.layoutIfNeeded()
+
+    let frames = control.segmentFramesInControlCoordinates()
+    XCTAssertEqual(frames.count, 3)
+    XCTAssertGreaterThan(frames[1].width, frames[0].width)
+    for (index, frame) in frames.enumerated() {
+      XCTAssertEqual(control.segmentIndex(at: CGPoint(x: frame.midX, y: frame.midY)), index)
+    }
+    withExtendedLifetime(window) {}
+  }
+
   private func makeSubject(
     secondaryAction: FabBarAction? = nil,
     isSecondaryActionMenuEnabled: Bool,

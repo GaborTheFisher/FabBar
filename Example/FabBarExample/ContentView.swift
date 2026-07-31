@@ -16,12 +16,22 @@ struct ContentView: View {
   @State private var tabCount = 3
   @State private var useNativeTabBar = false
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
   
   private var tabBarVisibility: Visibility {
     if useNativeTabBar {
       return .visible
     }
     return horizontalSizeClass == .compact ? .hidden : .visible
+  }
+
+  private var fabBarDensity: FabBarDensity {
+#if DEBUG
+    if ProcessInfo.processInfo.arguments.contains("-fabbar-force-compact-density") {
+      return .compact
+    }
+#endif
+    return verticalSizeClass == .compact ? .compact : .regular
   }
   
   private var visibleTabs: [FabBarTab<AppTab>] {
@@ -88,7 +98,8 @@ struct ContentView: View {
       ) {
         showingSheet = true
       },
-      isVisible: !useNativeTabBar
+      isVisible: !useNativeTabBar,
+      density: fabBarDensity
     )
     .sheet(isPresented: $showingSheet) {
       Text("Sheet content")

@@ -12,11 +12,9 @@ enum Constants {
     /// Matches the standard iOS tab bar height for visual consistency.
     static let barHeight: CGFloat = 62
 
-    /// Height of the bar in its compact density (`FabBarDensity.compact`),
-    /// for compact-height windows. 52 − 2 × `contentPadding` leaves a
-    /// ~47pt interior, which still fits the icon-plus-10pt-title tab item,
-    /// so compact keeps full labels. Every interior metric (FAB diameter,
-    /// pill heights, capsule corners) derives from the framed height.
+    /// Height of the inline bar in its compact density
+    /// (`FabBarDensity.compact`). Every interior metric (FAB diameter, pill
+    /// heights, capsule corners) derives from the framed height.
     static let compactBarHeight: CGFloat = 52
 
     /// Maximum width of the glass bar on regular-width layouts. Keeping the
@@ -52,17 +50,30 @@ enum Constants {
     /// Provides consistent touch target and visual alignment.
     static let iconViewSize: CGFloat = 28
 
+    /// Gap between the icon and its trailing label in compact inline mode.
+    static let inlineIconTitleSpacing: CGFloat = 6
+
     // MARK: - Typography
 
     /// Font size for tab item titles.
     /// Matches Apple HIG recommendations for tab bar labels.
     static let tabTitleFontSize: CGFloat = 10
 
+    /// Slightly larger label used beside the icon in compact inline mode.
+    static let inlineTabTitleFontSize: CGFloat = 13
+
     // MARK: - Segment Sizing
 
     /// Fixed segment width used when there are fewer than 3 tabs.
     /// With 3+ tabs, segments auto-distribute to fill the available space.
     static let fewTabsSegmentWidth: CGFloat = 98
+
+    /// Horizontal breathing room around an inline icon-label pair.
+    static let inlineSegmentHorizontalPadding: CGFloat = 10
+
+    /// Keeps every content-sized segment at least as wide as a standard
+    /// minimum touch target.
+    static let minimumInlineSegmentWidth: CGFloat = 44
 
 }
 

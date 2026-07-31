@@ -135,8 +135,88 @@ final class FabBarModifierLayoutTests: XCTestCase {
     }
 
     XCTAssertEqual(bar.bounds.height, FabBarDensity.compact.barHeight, accuracy: 0.5)
+    XCTAssertLessThan(
+      bar.bounds.width,
+      window.bounds.width - Constants.horizontalPadding * 2,
+      "Compact FabBar should hug its inline icon-label content"
+    )
+    let barFrame = bar.convert(bar.bounds, to: window)
+    XCTAssertEqual(barFrame.midX, window.bounds.midX, accuracy: 0.5)
+
+    let segmentWidths = (0..<bar.segmentedControl.numberOfSegments).map {
+      bar.segmentedControl.widthForSegment(at: $0)
+    }
+    XCTAssertEqual(segmentWidths.count, 3)
+    XCTAssertGreaterThan(segmentWidths[1], segmentWidths[0])
+    XCTAssertGreaterThan(segmentWidths[1], segmentWidths[2])
+    XCTAssertEqual(bar.intrinsicContentSize.width, bar.bounds.width, accuracy: 0.5)
+
     bar.fabButton.sendActions(for: .touchUpInside)
     XCTAssertTrue(bar.isExpanded)
+    withExtendedLifetime(window) {}
+  }
+
+  func testCompactModifierCollapsesLabelsWithinANarrowLocalProposalAndRestoresThem() {
+    var selection = 0
+    let rootView = Color.clear
+      .fabBar(
+        selection: Binding(get: { selection }, set: { selection = $0 }),
+        tabs: makeTabs(),
+        action: makeAction(),
+        density: .compact
+      )
+      .environment(\.horizontalSizeClass, .compact)
+    let (window, controller) = host(rootView, size: CGSize(width: 240, height: 240))
+    guard let bar = waitForBar(in: controller.view) else {
+      XCTFail("The compact FabBar did not mount")
+      return
+    }
+
+    XCTAssertTrue(waitUntil { bar.isCompactContentCollapsed })
+    XCTAssertLessThanOrEqual(
+      bar.bounds.width,
+      window.bounds.width - Constants.horizontalPadding * 2 + 0.5
+    )
+    XCTAssertTrue(window.bounds.insetBy(dx: -0.5, dy: -0.5).contains(bar.convert(bar.bounds, to: window)))
+    XCTAssertFalse(bar.segmentedControl.areInlineTitlesVisible)
+    XCTAssertEqual(bar.segmentedControl.numberOfSegments, 3)
+    for frame in bar.segmentedControl.segmentFramesInControlCoordinates() {
+      XCTAssertTrue(
+        bar.segmentedControl.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame),
+        "A compact tab overflowed the locally available segmented control"
+      )
+    }
+
+    window.frame.size.width = 390
+    controller.view.frame = window.bounds
+    window.layoutIfNeeded()
+    controller.view.layoutIfNeeded()
+
+    XCTAssertTrue(waitUntil { !bar.isCompactContentCollapsed })
+    XCTAssertTrue(bar.segmentedControl.areInlineTitlesVisible)
+    XCTAssertLessThan(bar.bounds.width, window.bounds.width - Constants.horizontalPadding * 2)
+    withExtendedLifetime(window) {}
+  }
+
+  func testStableTabValuesReconcileChangedTitleAndIconPresentation() {
+    let model = MutableTabPresentation()
+    let rootView = MutableTabPresentationHost(model: model)
+    let (window, controller) = host(rootView, size: CGSize(width: 600, height: 844))
+    guard let bar = waitForBar(in: controller.view) else {
+      XCTFail("The compact FabBar did not mount")
+      return
+    }
+    let originalBar = bar
+    let originalWidth = bar.segmentedControl.widthForSegment(at: 0)
+    XCTAssertEqual(bar.segmentedControl.titleForSegment(at: 0), "Home")
+
+    model.usesAlternatePresentation = true
+
+    XCTAssertTrue(waitUntil {
+      bar.segmentedControl.titleForSegment(at: 0) == "A Much Longer Home"
+        && bar.segmentedControl.widthForSegment(at: 0) > originalWidth + 20
+    })
+    XCTAssertTrue(originalBar === bar, "Presentation changes should not remount the UIKit bar")
     withExtendedLifetime(window) {}
   }
 
@@ -177,6 +257,18 @@ final class FabBarModifierLayoutTests: XCTestCase {
     return nil
   }
 
+  private func waitUntil(
+    timeout: TimeInterval = 2,
+    condition: () -> Bool
+  ) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+      if condition() { return true }
+      RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    } while Date() < deadline
+    return condition()
+  }
+
   private func findSubview<T: UIView>(of type: T.Type, in root: UIView) -> T? {
     if let match = root as? T { return match }
     for subview in root.subviews {
@@ -185,5 +277,45 @@ final class FabBarModifierLayoutTests: XCTestCase {
       }
     }
     return nil
+  }
+}
+
+@MainActor
+@available(iOS 26.0, *)
+private final class MutableTabPresentation: ObservableObject {
+  @Published var usesAlternatePresentation = false
+}
+
+@MainActor
+@available(iOS 26.0, *)
+private struct MutableTabPresentationHost: View {
+  @ObservedObject var model: MutableTabPresentation
+  @State private var selection = 0
+
+  private var tabs: [FabBarTab<Int>] {
+    if model.usesAlternatePresentation {
+      [
+        FabBarTab(value: 0, title: "A Much Longer Home", systemImage: "star.fill"),
+        FabBarTab(value: 1, title: "Explore", systemImage: "map.fill"),
+        FabBarTab(value: 2, title: "Profile", systemImage: "person.fill"),
+      ]
+    } else {
+      [
+        FabBarTab(value: 0, title: "Home", systemImage: "house.fill"),
+        FabBarTab(value: 1, title: "Explore", systemImage: "map.fill"),
+        FabBarTab(value: 2, title: "Profile", systemImage: "person.fill"),
+      ]
+    }
+  }
+
+  var body: some View {
+    Color.clear
+      .fabBar(
+        selection: $selection,
+        tabs: tabs,
+        action: FabBarAction(systemImage: "plus", accessibilityLabel: "Primary", action: {}),
+        density: .compact
+      )
+      .environment(\.horizontalSizeClass, .compact)
   }
 }

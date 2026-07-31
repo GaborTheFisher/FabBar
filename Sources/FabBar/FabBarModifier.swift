@@ -50,20 +50,33 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
         )
     }
 
+    private var baseBar: some View {
+        FabBar(
+            selection: $selection,
+            tabs: tabs,
+            action: action,
+            secondaryActions: secondaryActions,
+            isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
+            collapseTrigger: collapseTrigger,
+            density: density
+        )
+    }
+
+    @ViewBuilder
+    private var widthAdaptedBar: some View {
+        if density.hugsContentHorizontally {
+            baseBar
+        } else {
+            baseBar
+                .frame(maxWidth: maximumBarWidth)
+        }
+    }
+
     func body(content: Content) -> some View {
         content
             .safeAreaBar(edge: .bottom) {
                 if showsFabBar {
-                    FabBar(
-                        selection: $selection,
-                        tabs: tabs,
-                        action: action,
-                        secondaryActions: secondaryActions,
-                        isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
-                        collapseTrigger: collapseTrigger,
-                        density: density
-                    )
-                        .frame(maxWidth: maximumBarWidth)
+                    widthAdaptedBar
                         .padding(.horizontal, Constants.horizontalPadding)
                         .padding(.bottom, Constants.bottomPadding)
                         .onGeometryChange(for: CGRect.self) { proxy in

@@ -34,6 +34,7 @@ final class TabBarSegmentedControl: UISegmentedControl {
   private var contentViews: [TabItemContentView] = []
   /// Accent-colored duplicates, masked to the glass indicator position.
   private var accentContentViews: [TabItemContentView] = []
+  private var inlineTitlesVisible = true
 
   /// Display link for updating accent masks each frame.
   private var displayLink: CADisplayLink?
@@ -119,7 +120,29 @@ final class TabBarSegmentedControl: UISegmentedControl {
     }
     contentViews = baseViews
     accentContentViews = accentViews
+    for contentView in contentViews {
+      contentView.setShowsInlineTitle(inlineTitlesVisible)
+    }
+    for accentView in accentContentViews {
+      accentView.setShowsInlineTitle(inlineTitlesVisible)
+    }
     setNeedsLayout()
+  }
+
+  /// Collapses or restores all compact labels as one coarse presentation so
+  /// a constrained bar never mixes labeled and icon-only tabs.
+  func setInlineTitlesVisible(_ areVisible: Bool) {
+    inlineTitlesVisible = areVisible
+    for contentView in contentViews {
+      contentView.setShowsInlineTitle(areVisible)
+    }
+    for accentView in accentContentViews {
+      accentView.setShowsInlineTitle(areVisible)
+    }
+  }
+
+  var areInlineTitlesVisible: Bool {
+    inlineTitlesVisible && contentViews.allSatisfy(\.showsInlineTitle)
   }
 
   /// Finds each internal segment view and injects base + accent `TabItemContentView`s as subviews.
@@ -136,10 +159,15 @@ final class TabBarSegmentedControl: UISegmentedControl {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         segmentView.addSubview(contentView)
 
+        let idealWidth = contentView.widthAnchor.constraint(
+          equalToConstant: contentView.intrinsicContentSize.width
+        )
+        idealWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
           contentView.centerXAnchor.constraint(equalTo: segmentView.centerXAnchor),
           contentView.centerYAnchor.constraint(equalTo: segmentView.centerYAnchor),
-          contentView.widthAnchor.constraint(equalToConstant: contentView.intrinsicContentSize.width),
+          idealWidth,
+          contentView.widthAnchor.constraint(lessThanOrEqualTo: segmentView.widthAnchor),
           contentView.heightAnchor.constraint(equalToConstant: contentView.intrinsicContentSize.height),
         ])
       }
@@ -151,10 +179,15 @@ final class TabBarSegmentedControl: UISegmentedControl {
         accentView.translatesAutoresizingMaskIntoConstraints = false
         segmentView.addSubview(accentView)
 
+        let idealWidth = accentView.widthAnchor.constraint(
+          equalToConstant: accentView.intrinsicContentSize.width
+        )
+        idealWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
           accentView.centerXAnchor.constraint(equalTo: segmentView.centerXAnchor),
           accentView.centerYAnchor.constraint(equalTo: segmentView.centerYAnchor),
-          accentView.widthAnchor.constraint(equalToConstant: accentView.intrinsicContentSize.width),
+          idealWidth,
+          accentView.widthAnchor.constraint(lessThanOrEqualTo: segmentView.widthAnchor),
           accentView.heightAnchor.constraint(equalToConstant: accentView.intrinsicContentSize.height),
         ])
 
@@ -186,7 +219,13 @@ final class TabBarSegmentedControl: UISegmentedControl {
   private func findSegmentViews() -> [UIView] {
     var segments: [UIView] = []
     findSegments(in: self, results: &segments)
-    return segments.sorted { $0.frame.origin.x < $1.frame.origin.x }
+    return segments.sorted {
+      convert($0.bounds, from: $0).minX < convert($1.bounds, from: $1).minX
+    }
+  }
+
+  func segmentFramesInControlCoordinates() -> [CGRect] {
+    findSegmentViews().map { convert($0.bounds, from: $0) }
   }
 
   private func findSegments(in view: UIView, results: inout [UIView]) {
@@ -307,7 +346,8 @@ final class TabBarSegmentedControl: UISegmentedControl {
     }
     let segments = findSegmentViews()
     if selectedSegmentIndex >= 0, selectedSegmentIndex < segments.count {
-      return segments[selectedSegmentIndex].frame
+      let segment = segments[selectedSegmentIndex]
+      return convert(segment.bounds, from: segment)
     }
     return .zero
   }
@@ -384,10 +424,23 @@ final class TabBarSegmentedControl: UISegmentedControl {
 
   // MARK: - Touch Handling
 
-  private func segmentIndex(at point: CGPoint) -> Int {
+  func segmentIndex(at point: CGPoint) -> Int {
     guard numberOfSegments > 0 else { return 0 }
-    let segmentWidth = bounds.width / CGFloat(numberOfSegments)
-    return min(max(Int(point.x / segmentWidth), 0), numberOfSegments - 1)
+    let frames = segmentFramesInControlCoordinates()
+    guard frames.count == numberOfSegments else {
+      let segmentWidth = bounds.width / CGFloat(numberOfSegments)
+      return min(max(Int(point.x / segmentWidth), 0), numberOfSegments - 1)
+    }
+
+    if let index = frames.firstIndex(where: { point.x >= $0.minX && point.x <= $0.maxX }) {
+      return index
+    }
+
+    // UIKit normally sends touches inside the control, but a nearest-centre
+    // fallback keeps tracking stable at the extreme edges during a drag.
+    return frames.enumerated().min {
+      abs($0.element.midX - point.x) < abs($1.element.midX - point.x)
+    }?.offset ?? 0
   }
 
   /// Whether to override `selectedSegmentIndex` on touch down for immediate glass indicator movement.

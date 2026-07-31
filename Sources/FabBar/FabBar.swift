@@ -37,16 +37,15 @@ import SwiftUI
 ///
 /// Density is a plain parameter — the package never reads size classes or
 /// window geometry itself. Hosts that adapt to compact window heights pass
-/// `.compact`; everything inside the bar (FAB diameter, pill heights,
-/// capsule corners) derives from the framed height, so no other knob is
-/// needed.
+/// `.compact`; the bar then uses an inline, content-hugging tab presentation.
+/// The regular presentation keeps the familiar stacked, available-width tab
+/// strip.
 @available(iOS 26.0, *)
 public enum FabBarDensity: Sendable, Equatable {
   /// The standard 62pt bar.
   case regular
-  /// A 52pt bar for compact-height windows. The interior still fits the
-  /// icon-plus-title tab items (52 − 2 × content padding − 1 ≥ the ~40pt
-  /// tab-item intrinsic height), so no icon-only fallback is required.
+  /// A 52pt, content-hugging bar for compact-height windows. Each tab places
+  /// its label at the trailing edge of its icon.
   case compact
 
   var barHeight: CGFloat {
@@ -54,6 +53,17 @@ public enum FabBarDensity: Sendable, Equatable {
     case .regular: Constants.barHeight
     case .compact: Constants.compactBarHeight
     }
+  }
+
+  var tabItemLayout: FabBarTabItemLayout {
+    switch self {
+    case .regular: .stacked
+    case .compact: .inline
+    }
+  }
+
+  var hugsContentHorizontally: Bool {
+    self == .compact
   }
 }
 
@@ -125,6 +135,7 @@ public struct FabBar<Value: Hashable>: View {
         secondaryActions: secondaryActions,
         isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
         collapseTrigger: collapseTrigger,
+        density: density,
         activeTab: $selection
       )
       .frame(height: density.barHeight)
