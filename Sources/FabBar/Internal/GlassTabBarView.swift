@@ -92,7 +92,7 @@ final class GlassTabBarView: UIView {
         forName: name, object: nil, queue: .main
       ) { [weak self] notification in
         let scene = notification.object as? UIScene
-        MainActor.assumeIsolated {
+        Task { @MainActor [weak self, weak scene] in
           guard let self else { return }
           if let scene, let windowScene = self.window?.windowScene,
              scene !== windowScene { return }

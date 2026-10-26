@@ -154,7 +154,7 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
-  func testPlacementSizeKeyboardAndBackgroundChangesRemoveExpandedHitOverlays() {
+  func testPlacementSizeKeyboardAndBackgroundChangesRemoveExpandedHitOverlays() async {
     let subject = makeSubject(secondary: [FabBarAction(systemImage: "plus", accessibilityLabel: "Add reading", action: {})])
     let window = host(subject, placement: .leading)
     let baselineSubviews = window.subviews.count
@@ -169,6 +169,7 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
       subject.fabButton.sendActions(for: .touchUpInside)
       XCTAssertTrue(subject.isExpanded)
       NotificationCenter.default.post(name: name, object: nil)
+      await waitForMenuCleanup(subject)
       XCTAssertFalse(subject.isExpanded)
       XCTAssertEqual(window.subviews.count, baselineSubviews)
     }
@@ -179,6 +180,46 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     XCTAssertFalse(subject.isExpanded)
     XCTAssertEqual(window.subviews.count, baselineSubviews)
     withExtendedLifetime(window) {}
+  }
+
+  func testLifecycleNotificationsHopToMainActorFromBackgroundAndMainOperationQueue() async {
+    let subject = makeSubject(secondary: [FabBarAction(systemImage: "plus", accessibilityLabel: "Add reading", action: {})])
+    let window = host(subject, placement: .leading)
+    let baselineSubviews = window.subviews.count
+    let names = [UIResponder.keyboardWillChangeFrameNotification, UIApplication.willResignActiveNotification,
+                 UIApplication.didEnterBackgroundNotification]
+
+    for name in names {
+      subject.fabButton.sendActions(for: .touchUpInside)
+      XCTAssertTrue(subject.isExpanded)
+      await Task.detached {
+        NotificationCenter.default.post(name: name, object: nil)
+      }.value
+      await waitForMenuCleanup(subject)
+      XCTAssertFalse(subject.isExpanded)
+      XCTAssertEqual(window.subviews.count, baselineSubviews)
+
+      subject.fabButton.sendActions(for: .touchUpInside)
+      XCTAssertTrue(subject.isExpanded)
+      await withCheckedContinuation { continuation in
+        OperationQueue.main.addOperation {
+          NotificationCenter.default.post(name: name, object: nil)
+          continuation.resume()
+        }
+      }
+      await waitForMenuCleanup(subject)
+      XCTAssertFalse(subject.isExpanded)
+      XCTAssertEqual(window.subviews.count, baselineSubviews)
+    }
+    subject.prepareForRemoval()
+    withExtendedLifetime(window) {}
+  }
+
+  private func waitForMenuCleanup(_ subject: GlassTabBarView) async {
+    for _ in 0..<50 {
+      if !subject.isExpanded { return }
+      try? await Task.sleep(for: .milliseconds(10))
+    }
   }
 
   func testTransparentGlassSpacingPassesTouchesToUnderlyingContent() {
