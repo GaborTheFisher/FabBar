@@ -15,13 +15,12 @@ struct ContentView: View {
   @State private var showingSettings = false
   @State private var tabCount = 3
   @State private var useNativeTabBar = false
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var placement: FabBarPlacement = .automatic
+  @State private var compactControls = false
+  @State private var actionCount = 0
   
   private var tabBarVisibility: Visibility {
-    if useNativeTabBar {
-      return .visible
-    }
-    return horizontalSizeClass == .compact ? .hidden : .visible
+    useNativeTabBar ? .visible : .hidden
   }
   
   private var visibleTabs: [FabBarTab<AppTab>] {
@@ -86,16 +85,20 @@ struct ContentView: View {
         systemImage: "plus",
         accessibilityLabel: "Add"
       ) {
+        actionCount += 1
         showingSheet = true
       },
-      isVisible: !useNativeTabBar
+      isVisible: !useNativeTabBar,
+      density: compactControls ? .compact : .regular,
+      placement: placement
     )
     .sheet(isPresented: $showingSheet) {
-      Text("Sheet content")
+      Text("Primary action dispatched \(actionCount) times")
         .presentationDetents([.medium])
     }
     .sheet(isPresented: $showingSettings) {
-      SettingsView(tabCount: $tabCount, useNativeTabBar: $useNativeTabBar)
+      SettingsView(tabCount: $tabCount, useNativeTabBar: $useNativeTabBar,
+        placement: $placement, compactControls: $compactControls)
         .presentationDetents([.medium])
     }
     .onChange(of: tabCount) {
@@ -111,6 +114,8 @@ struct ContentView: View {
 struct SettingsView: View {
   @Binding var tabCount: Int
   @Binding var useNativeTabBar: Bool
+  @Binding var placement: FabBarPlacement
+  @Binding var compactControls: Bool
   
   var body: some View {
     NavigationStack {
@@ -120,6 +125,16 @@ struct SettingsView: View {
         }
         
         if !useNativeTabBar {
+          Section("Adaptive FabBar") {
+            Picker("Placement", selection: $placement) {
+              Text("Automatic").tag(FabBarPlacement.automatic)
+              Text("Bottom").tag(FabBarPlacement.bottom)
+              Text("Leading side").tag(FabBarPlacement.leading)
+              Text("Trailing side").tag(FabBarPlacement.trailing)
+            }
+            Toggle("Compact controls", isOn: $compactControls)
+            Text("Rotate or resize while another tab is selected. Its selection and local counter remain intact. Short rails keep the action beside a navigation chooser.")
+          }
           Section("Number of Tabs") {
             Picker("Number of Tabs", selection: $tabCount) {
               Text("2").tag(2)
@@ -138,6 +153,7 @@ struct SettingsView: View {
 struct TabContentPlaceholder: View {
   let title: String
   let systemImage: String
+  @State private var localCount = 0
   
   var body: some View {
     VStack {
@@ -148,10 +164,12 @@ struct TabContentPlaceholder: View {
       Text(title)
         .font(.title2)
         .foregroundStyle(.secondary)
+      Button("Local count: \(localCount)") { localCount += 1 }
+        .buttonStyle(.bordered)
       Spacer()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .accessibilityHidden(true)
+    .accessibilityIdentifier("example.tab.\(title)")
   }
 }
 
@@ -203,6 +221,7 @@ struct ExploreTabView: View {
   }
 }
 
+#if DEBUG
 #Preview {
   if #available(iOS 26.0, *) {
     ContentView()
@@ -210,3 +229,5 @@ struct ExploreTabView: View {
     Text("Requires iOS 26")
   }
 }
+
+#endif

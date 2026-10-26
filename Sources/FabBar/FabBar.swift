@@ -35,11 +35,9 @@ import SwiftUI
 
 /// Coarse density presets for the bar.
 ///
-/// Density is a plain parameter — the package never reads size classes or
-/// window geometry itself. Hosts that adapt to compact window heights pass
-/// `.compact`; everything inside the bar (FAB diameter, pill heights,
-/// capsule corners) derives from the framed height, so no other knob is
-/// needed.
+/// Density is a plain parameter. Hosts that adapt to short windows pass
+/// `.compact`; automatic placement changes the edge without changing density.
+/// The primary action and navigation hit regions derive from this thickness.
 @available(iOS 26.0, *)
 public enum FabBarDensity: Sendable, Equatable {
   /// The standard 62pt bar.
@@ -83,6 +81,13 @@ public struct FabBar<Value: Hashable>: View {
   /// The coarse density preset the host selected.
   public var density: FabBarDensity
 
+  /// Preferred edge. Automatic follows the system's vertical-bar placement.
+  public var placement: FabBarPlacement
+
+  /// Available length for a side rail. When the full navigation capsule does
+  /// not fit, it becomes a chooser while the primary action remains visible.
+  public var maximumLength: CGFloat?
+
   /// Creates a FabBar with the specified configuration.
   ///
   /// - Parameters:
@@ -93,6 +98,8 @@ public struct FabBar<Value: Hashable>: View {
   ///   - isSecondaryActionMenuEnabled: Whether tapping may reveal secondary actions.
   ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
   ///   - density: Coarse density preset; pass `.compact` for compact-height windows.
+  ///   - placement: Automatic follows the system-preferred edge on iOS 27.1+.
+  ///   - maximumLength: Available side-rail height, used to choose full tabs or a navigation chooser.
   public init(
     selection: Binding<Value>,
     tabs: [FabBarTab<Value>],
@@ -100,7 +107,9 @@ public struct FabBar<Value: Hashable>: View {
     secondaryActions: [FabBarAction] = [],
     isSecondaryActionMenuEnabled: Bool = true,
     collapseTrigger: Int = 0,
-    density: FabBarDensity = .regular
+    density: FabBarDensity = .regular,
+    placement: FabBarPlacement = .automatic,
+    maximumLength: CGFloat? = nil
   ) {
     self._selection = selection
     self.tabs = tabs
@@ -109,9 +118,18 @@ public struct FabBar<Value: Hashable>: View {
     self.isSecondaryActionMenuEnabled = isSecondaryActionMenuEnabled
     self.collapseTrigger = collapseTrigger
     self.density = density
+    self.placement = placement
+    self.maximumLength = maximumLength
   }
 
   public var body: some View {
+    FabBarPlacementReader(placement: placement) { resolvedPlacement in
+      resolvedBar(placement: resolvedPlacement)
+    }
+  }
+
+  @ViewBuilder
+  private func resolvedBar(placement: FabBarPlacement) -> some View {
     if tabs.isEmpty {
       Color.clear
         .frame(height: density.barHeight)
@@ -125,9 +143,17 @@ public struct FabBar<Value: Hashable>: View {
         secondaryActions: secondaryActions,
         isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
         collapseTrigger: collapseTrigger,
+        placement: placement,
+        density: density,
+        maximumLength: maximumLength,
         activeTab: $selection
       )
-      .frame(height: density.barHeight)
+      .frame(
+        width: placement.isVertical ? density.barHeight : nil,
+        height: placement.isVertical
+          ? FabBarLayoutPolicy.verticalLength(tabCount: tabs.count, density: density, maximumLength: maximumLength)
+          : density.barHeight
+      )
     }
   }
 }

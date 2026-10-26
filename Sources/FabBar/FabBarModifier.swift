@@ -1,13 +1,7 @@
 import SwiftUI
 
-/// View modifier that positions a FabBar at the bottom of the view.
-///
-/// This modifier handles all the layout details:
-/// - Wraps in `.safeAreaBar(edge: .bottom)`
-/// - Applies appropriate padding
-/// - Ignores bottom safe area for manual positioning
-/// - Keeps tab navigation visible and width-capped in regular-width layouts
-/// - Injects padding measured from the rendered bar into the environment
+/// Hosts one floating navigation/action surface without replacing the tab
+/// content when the system's preferred edge changes.
 @available(iOS 26.0, *)
 struct FabBarModifier<Value: Hashable>: ViewModifier {
     @Binding var selection: Value
@@ -19,12 +13,14 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
     let collapseTrigger: Int
     let density: FabBarDensity
     let regularWidthBehavior: FabBarRegularWidthBehavior
+    let placement: FabBarPlacement
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var bottomSafeAreaInset: CGFloat = 0
+    @Environment(\.layoutDirection) private var layoutDirection
     @State private var renderedBarFrame: CGRect = .zero
+    @State private var measuredPlacement: FabBarPlacement = .automatic
+    @State private var hostGeometry = FabBarHostGeometry()
 
-    /// Whether the FabBar should be displayed.
     private var showsFabBar: Bool {
         FabBarModifierLayout.showsBar(
             isVisible: isVisible,
@@ -33,54 +29,70 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
         )
     }
 
-    /// Regular-width bars remain available as the primary tab navigation but
-    /// are capped so their controls do not stretch across the whole window.
-    private var maximumBarWidth: CGFloat {
-        FabBarModifierLayout.maximumBarWidth(horizontalSizeClass: horizontalSizeClass)
+    func body(content: Content) -> some View {
+        FabBarPlacementReader(placement: placement) { resolvedPlacement in
+            content
+                .overlay {
+                    GeometryReader { geometry in
+                        if showsFabBar {
+                            FabBar(
+                                selection: $selection,
+                                tabs: tabs,
+                                action: action,
+                                secondaryActions: secondaryActions,
+                                isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
+                                collapseTrigger: collapseTrigger,
+                                density: density,
+                                placement: resolvedPlacement,
+                                maximumLength: max(0, geometry.size.height - 2 * Constants.bottomPadding)
+                            )
+                            .frame(maxWidth: resolvedPlacement.isVertical ? nil
+                                : FabBarModifierLayout.maximumBarWidth(horizontalSizeClass: horizontalSizeClass))
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                                renderedBarFrame = $0
+                                measuredPlacement = resolvedPlacement
+                            }
+                            .padding(.horizontal, resolvedPlacement.isVertical ? 0 : Constants.horizontalPadding)
+                            .padding(.leading, resolvedPlacement == .leading ? Constants.horizontalPadding : 0)
+                            .padding(.trailing, resolvedPlacement == .trailing ? Constants.horizontalPadding : 0)
+                            .padding(.bottom, Constants.bottomPadding)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: resolvedPlacement.alignment)
+                        }
+                    }
+                    .onGeometryChange(for: FabBarHostGeometry.self) {
+                        FabBarHostGeometry(size: $0.size, globalFrame: $0.frame(in: .global))
+                    } action: { hostGeometry = $0 }
+                }
+                .environment(\.fabBarPlacement, resolvedPlacement)
+                .environment(\.fabBarFrame,
+                    showsFabBar && measuredPlacement == resolvedPlacement ? renderedBarFrame : .zero)
+                .environment(\.fabBarSafeAreaInsets, clearances(for: resolvedPlacement))
+                .environment(\.fabBarBottomSafeAreaPadding, clearances(for: resolvedPlacement).bottom)
+                .onChange(of: showsFabBar) { _, visible in
+                    if !visible { renderedBarFrame = .zero }
+                }
+        }
     }
 
-    /// The padding to inject into the environment.
-    /// This is derived from the rendered chrome frame (including its bottom
-    /// spacing), rather than assuming a particular density or bar height.
-    private var calculatedPadding: CGFloat {
-        FabBarModifierLayout.bottomSafeAreaPadding(
-            showsBar: showsFabBar,
+    private func clearances(for placement: FabBarPlacement) -> EdgeInsets {
+        guard showsFabBar else { return EdgeInsets() }
+        guard measuredPlacement == placement, !renderedBarFrame.isEmpty,
+              !hostGeometry.globalFrame.isEmpty else {
+            return FabBarModifierLayout.fallbackInsets(placement: placement, density: density)
+        }
+        return FabBarModifierLayout.safeAreaInsets(
+            placement: placement,
             renderedBarFrame: renderedBarFrame,
-            bottomSafeAreaInset: bottomSafeAreaInset
+            hostFrame: hostGeometry.globalFrame,
+            hostSize: hostGeometry.size,
+            layoutDirection: layoutDirection
         )
     }
+}
 
-    func body(content: Content) -> some View {
-        content
-            .safeAreaBar(edge: .bottom) {
-                if showsFabBar {
-                    FabBar(
-                        selection: $selection,
-                        tabs: tabs,
-                        action: action,
-                        secondaryActions: secondaryActions,
-                        isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled,
-                        collapseTrigger: collapseTrigger,
-                        density: density
-                    )
-                        .frame(maxWidth: maximumBarWidth)
-                        .padding(.horizontal, Constants.horizontalPadding)
-                        .padding(.bottom, Constants.bottomPadding)
-                        .onGeometryChange(for: CGRect.self) { proxy in
-                            proxy.frame(in: .global)
-                        } action: { newValue in
-                            renderedBarFrame = newValue
-                        }
-                }
-            }
-            .ignoresSafeArea(.all, edges: showsFabBar ? [.bottom] : [])
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.safeAreaInsets.bottom
-            } action: { newValue in
-                bottomSafeAreaInset = newValue
-            }
-            .environment(\.fabBarBottomSafeAreaPadding, calculatedPadding)
-    }
+private struct FabBarHostGeometry: Equatable {
+    var size: CGSize = .zero
+    var globalFrame: CGRect = .zero
 }
 
 @available(iOS 26.0, *)
@@ -101,6 +113,47 @@ enum FabBarModifierLayout {
             : .infinity
     }
 
+    static func fallbackInsets(placement: FabBarPlacement, density: FabBarDensity) -> EdgeInsets {
+        let clearance = density.barHeight + Constants.bottomPadding
+        switch placement {
+        case .leading: return EdgeInsets(top: 0, leading: clearance, bottom: 0, trailing: 0)
+        case .trailing: return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: clearance)
+        case .automatic, .bottom: return EdgeInsets(top: 0, leading: 0, bottom: clearance, trailing: 0)
+        }
+    }
+
+    static func safeAreaInsets(
+        placement: FabBarPlacement,
+        renderedBarFrame: CGRect,
+        hostFrame: CGRect,
+        hostSize: CGSize,
+        layoutDirection: LayoutDirection
+    ) -> EdgeInsets {
+        guard !renderedBarFrame.isEmpty, !hostFrame.isEmpty,
+              hostSize.width > 0, hostSize.height > 0,
+              hostFrame.width.isFinite, hostFrame.height.isFinite,
+              renderedBarFrame.intersects(hostFrame) else { return EdgeInsets() }
+        let scaleX = hostSize.width / hostFrame.width
+        let scaleY = hostSize.height / hostFrame.height
+        switch placement {
+        case .automatic, .bottom:
+            return EdgeInsets(top: 0, leading: 0,
+                bottom: min(hostSize.height, max(0, hostFrame.maxY - renderedBarFrame.minY) * scaleY), trailing: 0)
+        case .leading:
+            let overlap = layoutDirection == .leftToRight
+                ? renderedBarFrame.maxX - hostFrame.minX
+                : hostFrame.maxX - renderedBarFrame.minX
+            return EdgeInsets(top: 0,
+                leading: min(hostSize.width, max(0, overlap) * scaleX), bottom: 0, trailing: 0)
+        case .trailing:
+            let overlap = layoutDirection == .leftToRight
+                ? hostFrame.maxX - renderedBarFrame.minX
+                : renderedBarFrame.maxX - hostFrame.minX
+            return EdgeInsets(top: 0, leading: 0, bottom: 0,
+                trailing: min(hostSize.width, max(0, overlap) * scaleX))
+        }
+    }
+
     static func bottomSafeAreaPadding(
         showsBar: Bool,
         renderedBarFrame: CGRect,
@@ -118,7 +171,7 @@ enum FabBarModifierLayout {
 /// the same tabs are available through another visible navigation surface.
 @available(iOS 26.0, *)
 public enum FabBarRegularWidthBehavior: Sendable, Equatable {
-    /// Keep FabBar visible, centered, and capped at a readable width.
+    /// Keep FabBar visible. Bottom bars are centered and width-capped.
     case visible
 
     /// Hide FabBar at regular width because the host provides another visible
@@ -128,11 +181,11 @@ public enum FabBarRegularWidthBehavior: Sendable, Equatable {
 
 @available(iOS 26.0, *)
 public extension View {
-    /// Adds a FabBar to the bottom of the view.
+    /// Adds FabBar at the system-preferred edge, or an explicit placement.
     ///
     /// This is the recommended way to use FabBar. It handles positioning,
     /// safe area management, and keeps navigation visible at regular width.
-    /// Regular-width bars are centered and width-capped by default.
+    /// Bottom bars are centered and width-capped at regular width.
     ///
     /// ```swift
     /// TabView(selection: $selectedTab) {
@@ -155,6 +208,8 @@ public extension View {
     ///   - isVisible: Whether the FabBar is visible. Defaults to `true`.
     ///   - collapseTrigger: Increment to collapse any expanded secondary actions.
     ///   - density: Coarse density preset selected by the host.
+    ///   - placement: Automatic uses the system-preferred side on iOS 27.1+;
+    ///     earlier systems use the bottom. Explicit sides are useful for previews.
     ///   - regularWidthBehavior: Whether to keep navigation visible at regular
     ///     width. Hide it only when the host provides another tab surface.
     func fabBar<Value: Hashable>(
@@ -166,7 +221,8 @@ public extension View {
         isVisible: Bool = true,
         collapseTrigger: Int = 0,
         density: FabBarDensity = .regular,
-        regularWidthBehavior: FabBarRegularWidthBehavior = .visible
+        regularWidthBehavior: FabBarRegularWidthBehavior = .visible,
+        placement: FabBarPlacement = .automatic
     ) -> some View {
         modifier(FabBarModifier(
             selection: selection,
@@ -177,7 +233,8 @@ public extension View {
             isVisible: isVisible,
             collapseTrigger: collapseTrigger,
             density: density,
-            regularWidthBehavior: regularWidthBehavior
+            regularWidthBehavior: regularWidthBehavior,
+            placement: placement
         ))
     }
 }

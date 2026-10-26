@@ -1,10 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// A UIViewRepresentable that wraps a TabBarSegmentedControl for tab bar functionality.
-/// Tab content (icon + label) is injected directly into each segment's view subtree so that
-/// the glass magnification effect applies to the content. SF Symbols remain vector-based
-/// and scale at any resolution, avoiding rasterization issues in accessibility popovers.
+/// The same UIKit view stays mounted when only its axis or geometry changes.
 @available(iOS 26.0, *)
 struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   var tabs: [FabBarTab<Value>]
@@ -12,157 +9,79 @@ struct FabBarRepresentable<Value: Hashable>: UIViewRepresentable {
   var secondaryActions: [FabBarAction]
   var isSecondaryActionMenuEnabled: Bool
   var collapseTrigger: Int
-
+  var placement: FabBarPlacement = .bottom
+  var density: FabBarDensity = .regular
+  var maximumLength: CGFloat? = nil
   @Binding var activeTab: Value
 
-  func makeCoordinator() -> Coordinator {
-    Coordinator(parent: self)
-  }
+  func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
   func makeUIView(context: Context) -> GlassTabBarView {
-    let images = tabs.compactMap { _ in
-      UIImage(systemName: "circle")
-    }
-    let control = TabBarSegmentedControl(items: images)
-    control.showsLargeContentViewer = false
-    let selectedIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
-    control.selectedSegmentIndex = selectedIndex
-
-    configureSegmentContent(on: control)
-    control.selectedSegmentTintColor = segmentTintColor(for: control.traitCollection)
-
-    control.addTarget(context.coordinator, action: #selector(context.coordinator.tabSelected(_:)), for: .valueChanged)
-
-    // Handle reselection (tapping already-selected segment)
+    let control = FabBarTabControl()
+    control.setTabs(descriptors, replacingIdentity: true)
+    control.selectedSegmentIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
+    control.addTarget(context.coordinator, action: #selector(Coordinator.tabSelected(_:)), for: .valueChanged)
     let coordinator = context.coordinator
     control.onReselect = { [weak coordinator] index in
-      guard let coordinator else { return }
-      if index >= 0 && index < coordinator.parent.tabs.count {
-        coordinator.parent.tabs[index].onReselect?()
-      }
+      guard let coordinator, coordinator.parent.tabs.indices.contains(index) else { return }
+      coordinator.parent.tabs[index].onReselect?()
     }
-
-    // Wrap in glass tab bar view with segmented control and FAB
-    let container = GlassTabBarView(
-      segmentedControl: control,
-      tabCount: tabs.count,
-      action: action,
-      secondaryActions: secondaryActions,
-      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled
-    )
-
-    return container
+    let view = GlassTabBarView(
+      segmentedControl: control, tabCount: tabs.count, action: action,
+      secondaryActions: secondaryActions, isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled)
+    view.updateLayout(placement: placement, density: density, maximumLength: maximumLength)
+    return view
   }
 
-  func updateUIView(_ uiView: GlassTabBarView, context: Context) {
+  func updateUIView(_ view: GlassTabBarView, context: Context) {
     context.coordinator.parent = self
-    uiView.updatePrimaryAction(
-      action.action,
-      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled
-    )
-
-    let control = uiView.segmentedControl
-    control.selectedSegmentTintColor = segmentTintColor(for: uiView.traitCollection)
-
-    // Sync segments when tabs change (count, order, or identity)
-    let currentTabValues = tabs.map(\.value)
-    if currentTabValues != context.coordinator.previousTabValues {
-      context.coordinator.previousTabValues = currentTabValues
-
-      // Rebuild all segments — configureSegmentContent replaces all
-      // injected content views anyway, so incremental patching adds
-      // complexity without benefit.
-      control.removeAllSegments()
-      for _ in tabs {
-        control.insertSegment(
-          with: UIImage(systemName: "circle"),
-          at: control.numberOfSegments,
-          animated: false
-        )
-      }
-
-      configureSegmentContent(on: control)
-      uiView.updateTabCount(tabs.count)
+    view.updateAction(action, secondaryActions: secondaryActions,
+      isSecondaryActionMenuEnabled: isSecondaryActionMenuEnabled)
+    let values = tabs.map(\.value)
+    let replacesIdentity = values != context.coordinator.previousTabValues
+    if replacesIdentity {
+      view.collapseSecondaryActions()
+      context.coordinator.previousTabValues = values
     }
-
-    let newIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
-    if control.selectedSegmentIndex != newIndex {
-      control.selectedSegmentIndex = newIndex
-    }
-
+    view.segmentedControl.setTabs(descriptors, replacingIdentity: replacesIdentity)
+    view.updateTabCount(tabs.count)
+    view.segmentedControl.selectedSegmentIndex = tabs.firstIndex { $0.value == activeTab } ?? 0
+    view.updateLayout(placement: placement, density: density, maximumLength: maximumLength)
     if collapseTrigger != context.coordinator.previousCollapseTrigger {
       context.coordinator.previousCollapseTrigger = collapseTrigger
-      uiView.collapseSecondaryActions()
+      view.collapseSecondaryActions()
     }
-
-    // Set accent color from the view's inherited tintColor, converted to a concrete color.
-    // Only update when tintAdjustmentMode is normal — when dimmed (e.g. sheet presented),
-    // tintColor returns a dimmed gray which would incorrectly overwrite the accent color.
-    if uiView.tintAdjustmentMode == .normal, let tint = uiView.tintColor {
-      let concreteAccentColor = UIColor(cgColor: tint.cgColor)
-      control.activeTintColor = concreteAccentColor
+    if view.tintAdjustmentMode == .normal {
+      view.segmentedControl.activeTintColor = view.tintColor
     }
   }
 
-  static func dismantleUIView(_ uiView: GlassTabBarView, coordinator _: Coordinator) {
-    uiView.prepareForRemoval()
-  }
-
-  /// Sets accessibility titles, injects content views, and configures segment widths.
-  private func configureSegmentContent(on control: TabBarSegmentedControl) {
-    for (index, tab) in tabs.enumerated() {
-      control.setTitle(tab.resolvedTitle, forSegmentAt: index)
-    }
-
-    // Content views use draw(_:) rendering with NSCoding support, so when the
-    // accessibility popover archives/unarchives them they hide (via init(coder:)),
-    // letting the native segment labels render crisply at popover scale.
-    // Two views per segment: base (inactive) underneath, accent (active) on top
-    // masked to the glass indicator position.
-    let baseViews = tabs.map(makeContentView)
-    let accentViews = tabs.map(makeContentView)
-    control.configureContentViews(baseViews, accentViews: accentViews)
-
-    // Fixed width for <3 tabs (glass floats leading-aligned); 0 for 3+ (auto-distribute)
-    for index in 0..<tabs.count {
-      control.setWidth(tabs.count < 3 ? Constants.fewTabsSegmentWidth : 0, forSegmentAt: index)
+  private var descriptors: [FabBarTabDescriptor] {
+    tabs.map { tab in
+      let image = tab.image.flatMap { UIImage(named: $0, in: tab.imageBundle, compatibleWith: nil) }
+        ?? tab.systemImage.flatMap { UIImage(systemName: $0) }
+      return FabBarTabDescriptor(title: tab.resolvedTitle,
+        image: image?.withRenderingMode(.alwaysTemplate), accessibilityIdentifier: tab.accessibilityIdentifier)
     }
   }
 
-  private func makeContentView(for tab: FabBarTab<Value>) -> TabItemContentView {
-    if let imageName = tab.image {
-      TabItemContentView(title: tab.resolvedTitle, imageName: imageName, imageBundle: tab.imageBundle)
-    } else {
-      TabItemContentView(title: tab.resolvedTitle, symbolName: tab.systemImage ?? "")
-    }
-  }
-
-  private func segmentTintColor(for traitCollection: UITraitCollection) -> UIColor {
-    switch traitCollection.userInterfaceStyle {
-    case .dark:
-      return .label.withAlphaComponent(0.15)
-    default:
-      return .label.withAlphaComponent(0.08)
-    }
+  static func dismantleUIView(_ view: GlassTabBarView, coordinator: Coordinator) {
+    view.prepareForRemoval()
   }
 
   @MainActor
-  class Coordinator: NSObject {
+  final class Coordinator: NSObject {
     var parent: FabBarRepresentable<Value>
     var previousTabValues: [Value]
     var previousCollapseTrigger: Int
-
     init(parent: FabBarRepresentable<Value>) {
       self.parent = parent
-      self.previousTabValues = parent.tabs.map(\.value)
-      self.previousCollapseTrigger = parent.collapseTrigger
+      previousTabValues = parent.tabs.map(\.value)
+      previousCollapseTrigger = parent.collapseTrigger
     }
-
-    @objc func tabSelected(_ control: UISegmentedControl) {
+    @objc func tabSelected(_ control: FabBarTabControl) {
       let index = control.selectedSegmentIndex
-      if index >= 0 && index < parent.tabs.count {
-        parent.activeTab = parent.tabs[index].value
-      }
+      if parent.tabs.indices.contains(index) { parent.activeTab = parent.tabs[index].value }
     }
   }
 }

@@ -152,9 +152,9 @@ final class GlassTabBarViewTests: XCTestCase {
     isSecondaryActionMenuEnabled: Bool,
     primaryAction: @escaping () -> Void
   ) -> GlassTabBarView {
-    let control = TabBarSegmentedControl(
-      items: [UIImage(systemName: "circle")!]
-    )
+    let control = FabBarTabControl()
+    control.setTabs([FabBarTabDescriptor(title: "Collection",
+      image: UIImage(systemName: "circle"), accessibilityIdentifier: "collection")])
     return GlassTabBarView(
       segmentedControl: control,
       tabCount: 1,
