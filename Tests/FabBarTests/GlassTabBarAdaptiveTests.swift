@@ -209,6 +209,72 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     }
   }
 
+  func testHostedSecondaryLabelsUseTheirIdealTextWidthWithinTheAvailablePane() throws {
+    let cases: [(FabBarPlacement, CGSize)] = [
+      (.bottom, CGSize(width: 393, height: 852)),
+      (.leading, CGSize(width: 440, height: 956)),
+      (.trailing, CGSize(width: 240, height: 320)),
+    ]
+    let labels = ["Start new cycle", "Measurement"]
+    let font = UIFont.monospacedSystemFont(ofSize: 16, weight: .medium)
+    for (placement, windowSize) in cases {
+      for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+        let controllers = labels.map { label in
+          UIHostingController(rootView: HStack(spacing: 6) {
+            Image(systemName: "clock").frame(width: 20, height: 20)
+            Text(label).font(.system(size: 16, weight: .medium, design: .monospaced))
+          })
+        }
+        let actions = zip(labels, controllers).map { label, controller in
+          FabBarAction(systemImage: "", accessibilityLabel: label, view: controller, action: {})
+        }
+        let subject = makeSubject(secondary: actions)
+        let window = host(subject, placement: placement, windowSize: windowSize)
+        window.traitOverrides.preferredContentSizeCategory = category
+        subject.updateTraitsIfNeeded()
+        subject.layoutIfNeeded()
+        subject.fabButton.sendActions(for: .touchUpInside)
+        let menu = try XCTUnwrap(window.subviews.first {
+          $0.accessibilityIdentifier == "FabBar.secondaryMenu"
+        } as? UIScrollView)
+        let safe = window.safeAreaLayoutGuide.layoutFrame.insetBy(dx: 12, dy: 12)
+        XCTAssertTrue(safe.contains(menu.frame))
+        let fab = subject.fabGlassView.convert(subject.fabGlassView.bounds, to: window)
+        let availableWidth = placement.isVertical
+          ? max(fab.minX - safe.minX - 12, safe.maxX - fab.maxX - 12) : safe.width
+        for (index, button) in subject.secondaryButtons.enumerated() {
+          let context = "\(placement), \(windowSize), \(category.rawValue), \(labels[index])"
+          XCTAssertLessThanOrEqual(button.bounds.width, availableWidth + 1, context)
+          XCTAssertGreaterThanOrEqual(button.bounds.height, 44, context)
+          if category.isAccessibilityCategory {
+            XCTAssertTrue(controllers[index].view.isHidden, context)
+            let nativeTitle = button.configuration?.attributedTitle
+            XCTAssertEqual(nativeTitle.map { String($0.characters) }, labels[index], context)
+            XCTAssertEqual(button.titleLabel?.numberOfLines, 0, context)
+          } else {
+            let textWidth = ceil((labels[index] as NSString).size(withAttributes: [.font: font]).width)
+            let idealWidth = 24 + 20 + 6 + textWidth
+            if idealWidth <= availableWidth {
+              XCTAssertGreaterThanOrEqual(button.bounds.width, idealWidth - 1,
+                "The visible label must receive its ideal text width when the pane allows it. \(context)")
+            } else {
+              // A constrained HStack can choose a slightly narrower line break
+              // than the proposal. It must still reserve a readable text area
+              // and enough height for the wrapped label instead of collapsing.
+              XCTAssertGreaterThanOrEqual(controllers[index].view.bounds.width - 26, 44, context)
+              XCTAssertGreaterThanOrEqual(controllers[index].view.bounds.height, font.lineHeight * 2 - 1, context)
+            }
+            XCTAssertGreaterThan(controllers[index].view.bounds.width, 26,
+              "Icon and spacing must leave usable width for the visible text. \(context)")
+          }
+        }
+        subject.prepareForRemoval()
+        window.isHidden = true
+        withExtendedLifetime(controllers) {}
+      }
+    }
+  }
+
   func testLargestTextSecondaryActionsAreScrollableAndReadableInShortWindow() throws {
     let actions = (0..<5).map { index in
       FabBarAction(systemImage: "plus", accessibilityLabel: "Add a precision reading for the selected watch \(index)", action: {})

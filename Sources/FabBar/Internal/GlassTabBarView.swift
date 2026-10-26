@@ -307,11 +307,15 @@ final class GlassTabBarView: UIView {
       custom.bounds.size = CGSize(width: max(0, maximumWidth - 24), height: thickness)
       custom.setNeedsLayout()
       custom.layoutIfNeeded()
-      let fitting = custom.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-      let width = fitting.width.isFinite && fitting.width > 0 ? min(maximumWidth, fitting.width + 24) : maximumWidth
-      let height = custom.systemLayoutSizeFitting(CGSize(width: max(0, width - 24), height: 0),
-        withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
-      return CGSize(width: max(44, width), height: max(thickness, height + 16))
+      let proposal = CGSize(width: max(0, maximumWidth - 24), height: CGFloat.greatestFiniteMagnitude)
+      let fitting = action.customViewSizeThatFits?(proposal)
+        ?? custom.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+      let width = fitting.width.isFinite && fitting.width > 0 ? min(maximumWidth, ceil(fitting.width) + 24) : maximumWidth
+      let contentWidth = max(0, width - 24)
+      let height = action.customViewSizeThatFits?(CGSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude)).height
+        ?? custom.systemLayoutSizeFitting(CGSize(width: contentWidth, height: 0),
+          withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
+      return CGSize(width: max(44, width), height: max(thickness, height.isFinite ? ceil(height) + 16 : thickness))
     }
     return CGSize(width: thickness, height: thickness)
   }
