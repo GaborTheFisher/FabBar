@@ -360,7 +360,8 @@ final class GlassTabBarView: UIView {
     backdrop.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backdropTapped)))
     window.addSubview(backdrop)
     backdropView = backdrop
-    let scroll = UIScrollView(frame: secondaryMenuFrame)
+    let scroll = FabBarSecondaryMenuScrollView(frame: secondaryMenuFrame)
+    scroll.onEscape = { [weak self] in self?.collapse(animated: true) }
     scroll.backgroundColor = .clear
     scroll.contentInsetAdjustmentBehavior = .never
     scroll.showsVerticalScrollIndicator = contentHeight > height
@@ -438,6 +439,18 @@ final class GlassTabBarView: UIView {
     effect.isInteractive = true
     effect.tintColor = tintColor
     fabGlassView.effect = effect
+  }
+}
+
+/// The modal menu must provide the standard VoiceOver cancellation route.
+@available(iOS 26.0, *)
+private final class FabBarSecondaryMenuScrollView: UIScrollView {
+  var onEscape: (() -> Void)?
+
+  override func accessibilityPerformEscape() -> Bool {
+    guard let onEscape else { return super.accessibilityPerformEscape() }
+    onEscape()
+    return true
   }
 }
 

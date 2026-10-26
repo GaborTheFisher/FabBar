@@ -127,6 +127,37 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     }
   }
 
+  func testSecondaryMenuAccessibilityEscapeDismissesWithoutDispatchingCommands() throws {
+    for placement in [FabBarPlacement.bottom, .leading, .trailing] {
+      var primaryCalls = 0
+      var secondaryCalls = 0
+      let subject = makeSubject(primary: { primaryCalls += 1 }, secondary: [
+        FabBarAction(systemImage: "plus", accessibilityLabel: "Start new cycle") { secondaryCalls += 1 },
+        FabBarAction(systemImage: "clock", accessibilityLabel: "Measurement") { secondaryCalls += 1 }
+      ])
+      let window = host(subject, placement: placement)
+      let baselineSubviews = window.subviews.count
+      subject.fabButton.sendActions(for: .touchUpInside)
+      let menu = try XCTUnwrap(window.subviews.first {
+        $0.accessibilityIdentifier == "FabBar.secondaryMenu"
+      } as? UIScrollView)
+      XCTAssertTrue(menu.accessibilityViewIsModal)
+      XCTAssertTrue(subject.isExpanded)
+
+      XCTAssertTrue(menu.accessibilityPerformEscape(), "The modal menu must handle VoiceOver's escape gesture")
+
+      XCTAssertFalse(subject.isExpanded)
+      XCTAssertNil(menu.superview)
+      XCTAssertEqual(window.subviews.count, baselineSubviews)
+      XCTAssertEqual(primaryCalls, 1)
+      XCTAssertEqual(secondaryCalls, 0)
+      XCTAssertTrue(subject.fabButton.isUserInteractionEnabled)
+      subject.prepareForRemoval()
+      window.isHidden = true
+      withExtendedLifetime(window) {}
+    }
+  }
+
   func testHostedSecondaryLabelsKeepBothButtonCentersInsideTheInteractiveMenu() async throws {
     let animationsWereEnabled = UIView.areAnimationsEnabled
     UIView.setAnimationsEnabled(true)
