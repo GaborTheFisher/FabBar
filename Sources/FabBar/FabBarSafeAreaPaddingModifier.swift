@@ -2,8 +2,10 @@ import SwiftUI
 
 @available(iOS 26.0, *)
 public extension EnvironmentValues {
-    /// Measured clearance in the host's local coordinate space. Apply it once
-    /// to foreground content; decorative imagery can continue behind the bar.
+    /// Additional clearance in the host's local coordinate space, beyond its
+    /// existing safe areas. A side rail fully inside the system's reserved
+    /// strip reports zero. Apply once to foreground content; imagery may extend
+    /// behind the bar.
     @Entry var fabBarSafeAreaInsets: EdgeInsets = EdgeInsets(
         top: 0, leading: 0, bottom: Constants.barHeight + Constants.bottomPadding, trailing: 0)
 

@@ -208,9 +208,12 @@ and accessibility labels, and optional stable `accessibilityIdentifier` values
 on tabs.
 
 The modifier publishes `fabBarPlacement`, `fabBarFrame` (global coordinates),
-and `fabBarSafeAreaInsets` (host-local clearances). `fabBarSafeAreaPadding()` now
-clears the measured edge rather than assuming a bottom bar. Apply it once to
-foreground content. Background imagery may extend underneath the glass.
+and `fabBarSafeAreaInsets` (additional host-local clearances). Side chrome uses
+the horizontal system-reserved strip when available, with a 16pt window-edge
+inset. Content keeps its original safe areas; a rail that fits entirely inside
+an existing strip publishes zero additional clearance. `fabBarSafeAreaPadding()`
+clears only the remaining overlap. Apply it once to foreground content.
+Background imagery may extend underneath the glass.
 The legacy `fabBarBottomSafeAreaPadding` remains available and is zero for rails.
 
 For a custom host, resolve the edge once and keep the content tree stable:

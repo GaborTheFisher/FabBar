@@ -32,6 +32,9 @@ enum Constants {
     /// Horizontal padding for FabBar positioning.
     static let horizontalPadding: CGFloat = 21
 
+    /// Side rails sit inside the system's reserved edge strip when available.
+    static let sidePadding: CGFloat = 16
+
     /// Bottom padding for FabBar positioning.
     /// Provides clearance above the home indicator.
     static let bottomPadding: CGFloat = 21

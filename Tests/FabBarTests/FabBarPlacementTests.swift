@@ -85,6 +85,20 @@ final class FabBarPlacementTests: XCTestCase {
     XCTAssertEqual(trailing.leading, 0)
   }
 
+  func testSideRailInsideEitherExistingReservedStripAddsNoContentClearance() {
+    let host = CGRect(x: 96, y: 76, width: 208, height: 704)
+    for (placement, direction, rail) in [
+      (FabBarPlacement.leading, LayoutDirection.leftToRight, CGRect(x: 16, y: 400, width: 62, height: 256)),
+      (.trailing, .rightToLeft, CGRect(x: 16, y: 400, width: 62, height: 256)),
+      (.trailing, .leftToRight, CGRect(x: 322, y: 400, width: 62, height: 256)),
+      (.leading, .rightToLeft, CGRect(x: 322, y: 400, width: 62, height: 256))
+    ] {
+      XCTAssertEqual(FabBarModifierLayout.safeAreaInsets(placement: placement,
+        renderedBarFrame: rail, hostFrame: host, hostSize: host.size,
+        layoutDirection: direction), EdgeInsets())
+    }
+  }
+
   func testAbsentOrDetachedFrameDoesNotReserveContent() {
     let host = CGRect(x: 0, y: 0, width: 400, height: 800)
     let insets = FabBarModifierLayout.safeAreaInsets(

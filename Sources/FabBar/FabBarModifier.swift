@@ -32,6 +32,13 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
     func body(content: Content) -> some View {
         FabBarPlacementReader(placement: placement) { resolvedPlacement in
             content
+                .background {
+                    GeometryReader { _ in Color.clear }
+                        .onGeometryChange(for: FabBarHostGeometry.self) {
+                            FabBarHostGeometry(size: $0.size, globalFrame: $0.frame(in: .global))
+                        } action: { hostGeometry = $0 }
+                        .allowsHitTesting(false)
+                }
                 .overlay {
                     GeometryReader { geometry in
                         if showsFabBar {
@@ -53,15 +60,16 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
                                 measuredPlacement = resolvedPlacement
                             }
                             .padding(.horizontal, resolvedPlacement.isVertical ? 0 : Constants.horizontalPadding)
-                            .padding(.leading, resolvedPlacement == .leading ? Constants.horizontalPadding : 0)
-                            .padding(.trailing, resolvedPlacement == .trailing ? Constants.horizontalPadding : 0)
+                            .padding(.leading, resolvedPlacement == .leading ? Constants.sidePadding : 0)
+                            .padding(.trailing, resolvedPlacement == .trailing ? Constants.sidePadding : 0)
                             .padding(.bottom, Constants.bottomPadding)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: resolvedPlacement.alignment)
                         }
                     }
-                    .onGeometryChange(for: FabBarHostGeometry.self) {
-                        FabBarHostGeometry(size: $0.size, globalFrame: $0.frame(in: .global))
-                    } action: { hostGeometry = $0 }
+                    // Only the side chrome expands into the system-reserved
+                    // horizontal strip. Content and bottom chrome retain their
+                    // original safe-area geometry.
+                    .ignoresSafeArea(.container, edges: resolvedPlacement.isVertical ? .horizontal : [])
                 }
                 .environment(\.fabBarPlacement, resolvedPlacement)
                 .environment(\.fabBarFrame,
@@ -114,7 +122,7 @@ enum FabBarModifierLayout {
     }
 
     static func fallbackInsets(placement: FabBarPlacement, density: FabBarDensity) -> EdgeInsets {
-        let clearance = density.barHeight + Constants.bottomPadding
+        let clearance = density.barHeight + (placement.isVertical ? Constants.sidePadding : Constants.bottomPadding)
         switch placement {
         case .leading: return EdgeInsets(top: 0, leading: clearance, bottom: 0, trailing: 0)
         case .trailing: return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: clearance)

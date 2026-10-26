@@ -10,8 +10,20 @@ import XCTest
 @available(iOS 26.0, *)
 final class FabBarMeasuredClearanceTests: XCTestCase {
   func testMeasuredEdgeClearancePadsForegroundOnceInsideAsymmetricSafeAreaReservations() throws {
+    try verifyClearance(reservations: UIEdgeInsets(top: 76, left: 13, bottom: 63, right: 23),
+      placements: [.bottom, .leading, .trailing])
+  }
+
+  func testSideRailsFitInsideExistingLeftAndRightReservedStripsWithoutDoubleInset() throws {
+    for reservations in [UIEdgeInsets(top: 76, left: 96, bottom: 63, right: 23),
+                         UIEdgeInsets(top: 76, left: 13, bottom: 63, right: 96)] {
+      try verifyClearance(reservations: reservations, placements: [.leading, .trailing])
+    }
+  }
+
+  private func verifyClearance(reservations: UIEdgeInsets, placements: [FabBarPlacement]) throws {
     for direction in [LayoutDirection.leftToRight, .rightToLeft] {
-      for placement in [FabBarPlacement.bottom, .leading, .trailing] {
+      for placement in placements {
         let record = FabBarClearanceRecord()
         let root = FabBarClearanceContent(record: record)
           .fabBar(
@@ -28,7 +40,7 @@ final class FabBarMeasuredClearanceTests: XCTestCase {
         let controller = UIHostingController(rootView: root)
         // Include phone-style top/bottom reserves plus unequal extra host
         // reservations, without calling these real hardware observations.
-        controller.additionalSafeAreaInsets = UIEdgeInsets(top: 76, left: 13, bottom: 63, right: 23)
+        controller.additionalSafeAreaInsets = reservations
         let window: UIWindow
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
           window = UIWindow(windowScene: scene)
@@ -44,7 +56,7 @@ final class FabBarMeasuredClearanceTests: XCTestCase {
         }
         layout(window, controller.view)
 
-        let context = "\(placement.rawValue), \(direction)"
+        let context = "\(placement.rawValue), \(direction), safe reserves \(reservations)"
         let settled = waitUntil {
           layout(window, controller.view)
           guard let host = record.host, let foreground = record.foreground,
@@ -87,9 +99,18 @@ final class FabBarMeasuredClearanceTests: XCTestCase {
         if placement != .bottom { XCTAssertEqual(record.insets.bottom, 0, context) }
         if placement != .leading { XCTAssertEqual(record.insets.leading, 0, context) }
         if placement != .trailing { XCTAssertEqual(record.insets.trailing, 0, context) }
-        // The reserved safe area was already excluded from the host.
-        // Subtracting it again would leave foreground beneath the glass.
-        XCTAssertGreaterThanOrEqual(expected, FabBarDensity.regular.barHeight, context)
+        if placement.isVertical {
+          let isPhysicalLeft = (placement == .leading) == (direction == .leftToRight)
+          let edgeDistance = isPhysicalLeft ? barFrame.minX : window.bounds.maxX - barFrame.maxX
+          XCTAssertEqual(edgeDistance, Constants.sidePadding, accuracy: 0.5, context)
+          let existingStrip = isPhysicalLeft ? reservations.left : reservations.right
+          if existingStrip >= 96 {
+            XCTAssertEqual(expected, 0, accuracy: 0.5, context)
+            XCTAssertEqual(activeInset(record.insets, placement: placement), 0, accuracy: 0.5, context)
+          }
+        } else {
+          XCTAssertGreaterThanOrEqual(expected, FabBarDensity.regular.barHeight, context)
+        }
       }
     }
   }
@@ -106,9 +127,9 @@ final class FabBarMeasuredClearanceTests: XCTestCase {
     placement: FabBarPlacement, direction: LayoutDirection, host: CGRect, bar: CGRect
   ) -> CGFloat {
     switch placement {
-    case .automatic, .bottom: host.maxY - bar.minY
-    case .leading: direction == .leftToRight ? bar.maxX - host.minX : host.maxX - bar.minX
-    case .trailing: direction == .leftToRight ? host.maxX - bar.minX : bar.maxX - host.minX
+    case .automatic, .bottom: max(0, host.maxY - bar.minY)
+    case .leading: max(0, direction == .leftToRight ? bar.maxX - host.minX : host.maxX - bar.minX)
+    case .trailing: max(0, direction == .leftToRight ? host.maxX - bar.minX : bar.maxX - host.minX)
     }
   }
 
