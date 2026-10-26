@@ -383,7 +383,11 @@ final class GlassTabBarView: UIView {
     scroll.contentSize = CGSize(width: width, height: contentHeight)
     let duration = UIAccessibility.isReduceMotionEnabled ? 0 : 0.2
     scroll.alpha = 0
-    UIView.animate(withDuration: duration) { scroll.alpha = 1; self.fabButton.transform = CGAffineTransform(rotationAngle: .pi / 4) }
+    UIView.animate(withDuration: duration, delay: 0,
+      options: [.allowUserInteraction, .beginFromCurrentState]) {
+      scroll.alpha = 1
+      self.fabButton.transform = CGAffineTransform(rotationAngle: .pi / 4)
+    }
     if UIAccessibility.isVoiceOverRunning {
       UIAccessibility.post(notification: .layoutChanged, argument: secondaryItems.first?.button)
     }

@@ -30,6 +30,13 @@ FabBar owns its placement, compression and overflow behavior; it is custom
 navigation rather than a system tab bar. See [Custom chrome responsibilities](#custom-chrome-responsibilities)
 for the host's qualification responsibilities.
 
+## Requirements
+
+- Build with the iOS 27.1 SDK or later, which declares `toolbarVerticalEdge`.
+- The supported deployment minimum is iOS 26. Runtime availability guards keep
+  automatic placement at the bottom before iOS 27.1; they do not make these
+  declarations available to an older build SDK.
+
 ## Installation
 
 Add FabBar as a Swift Package dependency:

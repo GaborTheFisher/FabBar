@@ -127,6 +127,57 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     }
   }
 
+  func testHostedSecondaryLabelsKeepBothButtonCentersInsideTheInteractiveMenu() async throws {
+    let animationsWereEnabled = UIView.areAnimationsEnabled
+    UIView.setAnimationsEnabled(true)
+    defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
+    for placement in [FabBarPlacement.bottom, .leading, .trailing] {
+      for direction in [UISemanticContentAttribute.forceLeftToRight, .forceRightToLeft] {
+        let labels = ["Start new cycle", "Measurement"]
+        let controllers = labels.map { label in
+          UIHostingController(rootView: HStack(spacing: 6) {
+            Image(systemName: "clock").frame(width: 20, height: 20)
+            Text(label).font(.system(size: 16, weight: .medium, design: .monospaced))
+          })
+        }
+        let actions = zip(labels, controllers).map { label, controller in
+          FabBarAction(systemImage: "", accessibilityLabel: label, view: controller, action: {})
+        }
+        let subject = makeSubject(secondary: actions)
+        subject.semanticContentAttribute = direction
+        let window = host(subject, placement: placement,
+          windowSize: placement.isVertical ? CGSize(width: 440, height: 956) : CGSize(width: 393, height: 852))
+        window.traitOverrides.preferredContentSizeCategory = .large
+        subject.updateTraitsIfNeeded()
+        subject.layoutIfNeeded()
+        subject.fabButton.sendActions(for: .touchUpInside)
+        let menu = try XCTUnwrap(window.subviews.first {
+          $0.accessibilityIdentifier == "FabBar.secondaryMenu"
+        } as? UIScrollView)
+        func assertInteractiveCenters(stage: String) {
+          for (index, button) in subject.secondaryButtons.enumerated() {
+            let frame = button.convert(button.bounds, to: window)
+            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let hit = window.hitTest(center, with: nil)
+            let diagnostics = "stage=\(stage), placement=\(placement), direction=\(direction.rawValue), index=\(index), button=\(frame), center=\(center), menu=\(menu.frame), content=\(menu.contentSize), hit=\(String(describing: hit))"
+            XCTAssertTrue(menu.frame.contains(center), diagnostics)
+            XCTAssertTrue(hit === button || hit?.isDescendant(of: button) == true, diagnostics)
+          }
+        }
+        assertInteractiveCenters(stage: "animation in flight")
+        try await Task.sleep(for: .milliseconds(80))
+        print("FabBar hosted-hit diagnostics: placement=\(placement), direction=\(direction.rawValue), animations=\(String(describing: menu.layer.animationKeys())), modelOpacity=\(menu.layer.opacity), presentationOpacity=\(String(describing: menu.layer.presentation()?.opacity))")
+        assertInteractiveCenters(stage: "80ms after opening")
+        try await Task.sleep(for: .milliseconds(220))
+        window.layoutIfNeeded()
+        assertInteractiveCenters(stage: "animation complete")
+        subject.prepareForRemoval()
+        window.isHidden = true
+        withExtendedLifetime(controllers) {}
+      }
+    }
+  }
+
   func testLargestTextSecondaryActionsAreScrollableAndReadableInShortWindow() throws {
     let actions = (0..<5).map { index in
       FabBarAction(systemImage: "plus", accessibilityLabel: "Add a precision reading for the selected watch \(index)", action: {})
