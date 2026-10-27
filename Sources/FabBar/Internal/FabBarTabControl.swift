@@ -146,7 +146,10 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     lastTitleVisibility = hidesTitles
     for (index, button) in buttons.enumerated() where tabs.indices.contains(index) {
       let tab = tabs[index]
+      // The glass selection surface supplies feedback without a second tinted fill.
       var configuration = UIButton.Configuration.plain()
+      configuration.automaticallyUpdateForSelection = false
+      configuration.background.backgroundColor = .clear
       configuration.image = tab.image
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: Constants.tabIconPointSize, weight: .medium)
@@ -243,6 +246,8 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     }
     let selected = tabs[selectedSegmentIndex]
     var configuration = UIButton.Configuration.plain()
+    configuration.automaticallyUpdateForSelection = false
+    configuration.background.backgroundColor = .clear
     configuration.image = selected.image
     configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
       pointSize: Constants.tabIconPointSize, weight: .medium)
