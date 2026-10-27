@@ -211,7 +211,11 @@ final class GlassTabBarView: UIView {
     segmentedControl.setNeedsLayout()
     segmentedControl.layoutIfNeeded()
     fabButton.frame = fabGlassView.bounds
-    primaryCustomView?.frame = fabButton.bounds
+    // A retained hosting view may already belong to a replacement bar. An
+    // obsolete host's late layout must not resize content in its new owner.
+    if let primaryCustomView, primaryCustomView.superview === fabButton {
+      primaryCustomView.frame = fabButton.bounds
+    }
     for item in secondaryItems where item.glassView.superview === self {
       item.glassView.frame = fabGlassView.frame
     }

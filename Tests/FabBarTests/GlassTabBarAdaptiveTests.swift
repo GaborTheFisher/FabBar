@@ -206,6 +206,83 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     withExtendedLifetime((window, controller, replacement)) {}
   }
 
+  func testObsoleteBarLayoutCannotResizeOrDecenterReparentedPrimaryContent() throws {
+    let controller = UIHostingController(rootView: Image(systemName: "plus")
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .ignoresSafeArea())
+    let hostedView = try XCTUnwrap(controller.view)
+    // A native marker inside the real hosting view makes the inner content's
+    // center measurable independently of the bar's outer glass geometry.
+    let marker = UIView()
+    marker.isUserInteractionEnabled = false
+    marker.translatesAutoresizingMaskIntoConstraints = false
+    hostedView.addSubview(marker)
+    NSLayoutConstraint.activate([
+      marker.centerXAnchor.constraint(equalTo: hostedView.centerXAnchor),
+      marker.centerYAnchor.constraint(equalTo: hostedView.centerYAnchor),
+      marker.widthAnchor.constraint(equalToConstant: 20),
+      marker.heightAnchor.constraint(equalToConstant: 20),
+    ])
+    var calls = 0
+    let action = FabBarAction(systemImage: "plus", accessibilityLabel: "Add reading",
+      view: controller, action: { calls += 1 })
+    let obsolete = makeSubject()
+    let window = host(obsolete, placement: .bottom)
+    obsolete.updateAction(action, secondaryActions: [], isSecondaryActionMenuEnabled: false)
+    obsolete.layoutIfNeeded()
+    let replacement = makeSubject()
+    window.addSubview(replacement)
+    replacement.updateAction(action, secondaryActions: [], isSecondaryActionMenuEnabled: false)
+    XCTAssertTrue(hostedView.superview === replacement.fabButton)
+
+    let liveLayouts: [(FabBarPlacement, FabBarDensity)] = [
+      (.trailing, .regular), (.bottom, .regular), (.bottom, .compact),
+      (.leading, .compact), (.trailing, .regular),
+    ]
+    let obsoleteLayouts: [(FabBarPlacement, FabBarDensity, CGRect)] = [
+      (.trailing, .regular, CGRect(x: 316, y: 550, width: 0, height: 270)),
+      (.bottom, .regular, CGRect(x: 12, y: 758, width: 366, height: 62)),
+      (.bottom, .compact, CGRect(x: 12, y: 768, width: 366, height: 52)),
+      (.leading, .compact, CGRect(x: 24, y: 550, width: 20, height: 270)),
+      (.trailing, .regular, CGRect(x: 316, y: 550, width: 50, height: 270)),
+    ]
+    for (placement, density) in liveLayouts {
+      let thickness = density.barThickness(for: placement)
+      replacement.updateLayout(placement: placement, density: density, maximumLength: 270)
+      replacement.frame = placement.isVertical
+        ? CGRect(x: placement == .leading ? 24 : window.bounds.width - thickness - 24,
+          y: window.bounds.height - 294, width: thickness, height: 270)
+        : CGRect(x: 12, y: window.bounds.height - thickness - 24,
+          width: window.bounds.width - 24, height: thickness)
+      replacement.setNeedsLayout()
+      replacement.layoutIfNeeded()
+      hostedView.layoutIfNeeded()
+      XCTAssertEqual(replacement.fabButton.bounds.size,
+        CGSize(width: thickness, height: thickness))
+      for (oldPlacement, oldDensity, oldFrame) in obsoleteLayouts {
+        // The old representable can receive one more layout while SwiftUI
+        // changes axis or removes it, including a zero-width proposal.
+        obsolete.updateLayout(placement: oldPlacement, density: oldDensity, maximumLength: 270)
+        obsolete.frame = oldFrame
+        obsolete.setNeedsLayout()
+        obsolete.layoutIfNeeded()
+        hostedView.layoutIfNeeded()
+        let context = "live=\(placement)/\(density), obsolete=\(oldPlacement)/\(oldFrame.size)"
+        XCTAssertTrue(hostedView.superview === replacement.fabButton, context)
+        XCTAssertEqual(hostedView.frame, replacement.fabButton.bounds, context)
+        let center = marker.convert(CGPoint(x: marker.bounds.midX, y: marker.bounds.midY),
+          to: replacement.fabButton)
+        XCTAssertEqual(center.x, replacement.fabButton.bounds.midX, accuracy: 0.1, context)
+        XCTAssertEqual(center.y, replacement.fabButton.bounds.midY, accuracy: 0.1, context)
+        assertReceivesTouches(replacement.fabButton, in: window)
+      }
+    }
+    replacement.fabButton.sendActions(for: .touchUpInside)
+    XCTAssertEqual(calls, 1)
+    XCTAssertEqual(replacement.fabButton.accessibilityLabel, "Add reading")
+    withExtendedLifetime((window, controller, obsolete, replacement)) {}
+  }
+
   func testSecondaryMenusOpenInwardOnBothPhysicalSidesAndCleanupAfterDispatch() {
     for placement in [FabBarPlacement.leading, .trailing] {
       var calls = 0
