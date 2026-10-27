@@ -156,8 +156,12 @@ final class GlassTabBarView: UIView {
   private func configurePrimaryContent(_ action: FabBarAction) {
     primaryCustomViewController = action.customView
     let customView = action.customView?.view
-    if primaryCustomView !== customView {
-      primaryCustomView?.removeFromSuperview()
+    // A retained hosting controller can hand its view to a replacement bar
+    // during resizing. Reclaim it on update even when its identity is stable.
+    if primaryCustomView !== customView || (customView != nil && customView?.superview !== fabButton) {
+      if primaryCustomView?.superview === fabButton {
+        primaryCustomView?.removeFromSuperview()
+      }
       primaryCustomView = customView
       if let customView {
         customView.backgroundColor = .clear

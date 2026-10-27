@@ -141,7 +141,21 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     XCTAssertTrue(hostedView?.superview === subject.fabButton)
     XCTAssertTrue(controller.view === hostedView)
     XCTAssertEqual(subject.fabButton.accessibilityLabel, "Add reading")
-    withExtendedLifetime((window, controller)) {}
+
+    // SwiftUI can briefly mount a replacement bar with the same controller.
+    // The bar receiving the latest update must own the actual hosted view.
+    let replacement = makeSubject()
+    replacement.updateAction(action, secondaryActions: [], isSecondaryActionMenuEnabled: false)
+    XCTAssertTrue(hostedView?.superview === replacement.fabButton)
+    subject.updateAction(action, secondaryActions: [], isSecondaryActionMenuEnabled: false)
+    XCTAssertTrue(hostedView?.superview === subject.fabButton)
+    XCTAssertTrue(controller.view === hostedView)
+
+    // Tearing down the previous owner must not detach the reclaimed content.
+    replacement.updateAction(FabBarAction(systemImage: "camera", accessibilityLabel: "Capture", action: {}),
+      secondaryActions: [], isSecondaryActionMenuEnabled: false)
+    XCTAssertTrue(hostedView?.superview === subject.fabButton)
+    withExtendedLifetime((window, controller, replacement)) {}
   }
 
   func testSecondaryMenusOpenInwardOnBothPhysicalSidesAndCleanupAfterDispatch() {
