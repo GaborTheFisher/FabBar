@@ -23,11 +23,15 @@ FabBar provides one solution: recreate the tab bar entirely for full control.
 
 FabBar provides a SwiftUI API but uses UIKit internally.
 
-The shipping navigation control uses public UIKit buttons, `UIGlassEffect`, and
-`UIGlassContainerEffect`. A separate selection surface follows the selected
-button, and changing the axis reuses the mounted buttons and primary action.
-FabBar owns its placement, compression and overflow behavior; it is custom
-navigation rather than a system tab bar. See [Custom chrome responsibilities](#custom-chrome-responsibilities)
+Horizontal navigation uses FabBar's original `UISegmentedControl`, with custom
+icon-and-label drawing injected into its native segments. UIKit provides the
+native glass selection appearance and interaction. Vertical navigation uses the
+custom `UIButton` rail with `UIGlassEffect` and `UIGlassContainerEffect`.
+
+Both renderers share stable tab identities, selection and reselection callbacks,
+and primary and secondary action routing across axis changes. FabBar owns its
+placement, compression and overflow behavior; it is custom navigation rather
+than a system tab bar. See [Custom chrome responsibilities](#custom-chrome-responsibilities)
 for the host's qualification responsibilities.
 
 ## Requirements

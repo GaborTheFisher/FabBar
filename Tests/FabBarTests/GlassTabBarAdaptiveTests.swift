@@ -40,23 +40,68 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
-  func testAxisChangesPreserveSelectionAndExistingButtons() {
+  func testAxisChangesPreserveBothRenderersAndForwardSelectionThroughTheActiveOne() {
     let subject = makeSubject()
     let window = host(subject, placement: .leading)
-    subject.segmentedControl.buttons[2].sendActions(for: .touchUpInside)
+    let native = subject.segmentedControl.horizontalControl
     let buttons = subject.segmentedControl.buttons.map(ObjectIdentifier.init)
+    let primary = subject.fabButton
+    var changes: [Int] = []
+    subject.segmentedControl.addAction(UIAction { _ in
+      changes.append(subject.segmentedControl.selectedSegmentIndex)
+    }, for: .valueChanged)
+    subject.segmentedControl.buttons[2].sendActions(for: .touchUpInside)
 
     subject.updateLayout(placement: .bottom, density: .compact, maximumLength: nil)
     subject.frame = CGRect(x: 12, y: 760, width: 360, height: 52)
     subject.layoutIfNeeded()
+    XCTAssertFalse(native.isHidden)
+    XCTAssertTrue(native.isRendererActive)
+    XCTAssertEqual(native.selectedSegmentIndex, 2)
+    assertReceivesTouches(native, in: window)
+    native.selectedSegmentIndex = 1
+    dispatchNativeValueChanged(native)
+    XCTAssertEqual(subject.segmentedControl.selectedSegmentIndex, 1)
+
     subject.updateLayout(placement: .trailing, density: .regular, maximumLength: 132)
     subject.frame = CGRect(x: 316, y: 650, width: 62, height: 132)
     subject.layoutIfNeeded()
 
+    XCTAssertTrue(subject.segmentedControl.horizontalControl === native)
+    XCTAssertTrue(subject.fabButton === primary)
     XCTAssertEqual(subject.segmentedControl.buttons.map(ObjectIdentifier.init), buttons)
-    XCTAssertEqual(subject.segmentedControl.selectedSegmentIndex, 2)
+    XCTAssertEqual(subject.segmentedControl.selectedSegmentIndex, 1)
+    XCTAssertEqual(native.selectedSegmentIndex, 1)
+    XCTAssertTrue(native.isHidden)
+    XCTAssertFalse(native.isRendererActive)
     XCTAssertTrue(subject.segmentedControl.isCollapsed)
-    XCTAssertEqual(subject.segmentedControl.navigationMenuButton.accessibilityLabel, "Feed")
+    XCTAssertEqual(subject.segmentedControl.navigationMenuButton.accessibilityLabel, "Precision")
+    assertReceivesTouches(subject.segmentedControl.navigationMenuButton, in: window)
+    XCTAssertEqual(changes, [2, 1], "Axis and density changes must not emit additional destination changes")
+    withExtendedLifetime(window) {}
+  }
+
+  func testHorizontalNativeNavigationAndPrimaryRemainHittableThroughDensityChanges() {
+    let subject = makeSubject()
+    let window = host(subject, placement: .bottom)
+    let native = subject.segmentedControl.horizontalControl
+    let primary = subject.fabButton
+
+    for density in [FabBarDensity.regular, .compact, .regular] {
+      subject.updateLayout(placement: .bottom, density: density, maximumLength: nil)
+      subject.frame = CGRect(x: 12, y: 740, width: 366, height: density.barHeight)
+      subject.setNeedsLayout()
+      subject.layoutIfNeeded()
+      XCTAssertTrue(subject.segmentedControl.horizontalControl === native)
+      XCTAssertTrue(subject.fabButton === primary)
+      XCTAssertFalse(native.isHidden)
+      XCTAssertFalse(subject.segmentedControl.isCollapsed)
+      XCTAssertEqual(native.numberOfSegments, 4)
+      XCTAssertEqual(subject.segmentedGlassView.frame.maxX + 8, subject.fabGlassView.frame.minX, accuracy: 0.1)
+      XCTAssertGreaterThanOrEqual(native.bounds.height, 44)
+      assertReceivesTouches(native, in: window)
+      assertReceivesTouches(primary, in: window)
+    }
     withExtendedLifetime(window) {}
   }
 
@@ -389,6 +434,31 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     XCTAssertEqual(subject.fabGlassView.frame.minX, 0, accuracy: 0.1)
     XCTAssertGreaterThan(subject.segmentedGlassView.frame.minX, subject.fabGlassView.frame.maxX)
     withExtendedLifetime(window) {}
+  }
+
+  private func dispatchNativeValueChanged(_ control: UISegmentedControl,
+    file: StaticString = #filePath, line: UInt = #line) {
+    // Standalone SwiftPM xctest has no UIApplication. UIKit logs UIApp-is-nil
+    // and drops selector targets sent through sendActions; invoke the actual
+    // registered selector to verify wrapper wiring. App UI tests exercise taps.
+    let callbacks: [(NSObject, Selector)] = control.allTargets.compactMap { $0.base as? NSObject }.flatMap { target in
+      (control.actions(forTarget: target, forControlEvent: .valueChanged) ?? []).map {
+        (target, NSSelectorFromString($0))
+      }
+    }
+    XCTAssertEqual(callbacks.count, 1, "The native child must have one destination-change target", file: file, line: line)
+    for (target, selector) in callbacks {
+      XCTAssertTrue(target.responds(to: selector), file: file, line: line)
+      target.perform(selector, with: control)
+    }
+  }
+
+  private func assertReceivesTouches(_ view: UIView, in window: UIWindow,
+    file: StaticString = #filePath, line: UInt = #line) {
+    let point = view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: window)
+    let hit = window.hitTest(point, with: nil)
+    XCTAssertTrue(hit === view || hit?.isDescendant(of: view) == true,
+      "The visible renderer must receive touches: \(view.accessibilityIdentifier ?? "view")", file: file, line: line)
   }
 
   private func makeSubject(primary: @escaping () -> Void = {}, secondary: [FabBarAction] = []) -> GlassTabBarView {

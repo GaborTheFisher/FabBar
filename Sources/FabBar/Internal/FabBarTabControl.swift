@@ -1,7 +1,5 @@
 import UIKit
 
-/// Stable, public UIKit buttons provide the same selection model on both axes.
-/// No UISegmentedControl subview inspection is needed for glass or accessibility.
 @available(iOS 26.0, *)
 struct FabBarTabDescriptor: Equatable {
   let title: String
@@ -9,10 +7,15 @@ struct FabBarTabDescriptor: Equatable {
   let accessibilityIdentifier: String?
 }
 
+/// One stable selection model hosts the original native segmented control
+/// horizontally and the adaptive button rail vertically.
 @available(iOS 26.0, *)
 final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   private let stack = UIStackView()
   private let selectionView: UIVisualEffectView
+  let horizontalControl = TabBarSegmentedControl(items: [])
+  private var horizontalBaseViews: [TabItemContentView] = []
+  private var horizontalAccentViews: [TabItemContentView] = []
   private(set) var buttons: [UIButton] = []
   let navigationMenuButton = UIButton(type: .system)
   private(set) var tabs: [FabBarTabDescriptor] = []
@@ -36,28 +39,29 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   var isVertical = false {
     didSet {
       guard oldValue != isVertical else { return }
+      let hadFocus = containsNavigationFocus
       cancelSelectionDrag()
+      horizontalControl.cancelInteraction()
       dismissNavigationMenu()
-      stack.axis = isVertical ? .vertical : .horizontal
       updateButtonConfigurations()
+      updateRendererVisibility()
+      updateSelection(animated: false)
       setNeedsLayout()
+      if hadFocus { UIAccessibility.post(notification: .layoutChanged, argument: selectedAccessibilityTarget) }
     }
   }
   var isCollapsed = false {
     didSet {
       guard oldValue != isCollapsed else { return }
+      let hadNavigationFocus = containsNavigationFocus
       cancelSelectionDrag()
+      horizontalControl.cancelInteraction()
       dismissNavigationMenu()
-      let hadNavigationFocus = buttons.contains { $0.accessibilityElementIsFocused() }
-        || navigationMenuButton.accessibilityElementIsFocused()
-      stack.isHidden = isCollapsed
-      navigationMenuButton.isHidden = !isCollapsed
+      updateRendererVisibility()
       updateSelection(animated: false)
       setNeedsLayout()
       if hadNavigationFocus {
-        UIAccessibility.post(notification: .layoutChanged, argument: isCollapsed
-          ? navigationMenuButton
-          : buttons.indices.contains(selectedSegmentIndex) ? buttons[selectedSegmentIndex] : nil)
+        UIAccessibility.post(notification: .layoutChanged, argument: selectedAccessibilityTarget)
       }
     }
   }
@@ -79,7 +83,19 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     selectionView.isUserInteractionEnabled = false
     selectionView.cornerConfiguration = .capsule()
     addSubview(selectionView)
-    stack.axis = .horizontal
+    horizontalControl.accessibilityIdentifier = "FabBar.horizontalNavigation"
+    horizontalControl.showsLargeContentViewer = false
+    horizontalControl.addTarget(self, action: #selector(horizontalSelectionChanged(_:)), for: .valueChanged)
+    horizontalControl.onAccessibilityActivate = { [weak self] index in
+      guard let self, !self.isVertical, !self.isCollapsed else { return }
+      self.activateTab(at: index)
+    }
+    horizontalControl.onReselect = { [weak self] index in
+      guard let self, !self.isVertical, !self.isCollapsed, self.tabs.indices.contains(index) else { return }
+      self.onReselect?(index)
+    }
+    addSubview(horizontalControl)
+    stack.axis = .vertical
     stack.distribution = .fillEqually
     stack.spacing = 0
     addSubview(stack)
@@ -93,7 +109,8 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     selectionDrag.maximumNumberOfTouches = 1
     selectionDrag.delegate = self
     addGestureRecognizer(selectionDrag)
-    registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLayoutDirection.self]) {
+    updateRendererVisibility()
+    registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLayoutDirection.self, UITraitUserInterfaceStyle.self]) {
       (view: FabBarTabControl, _: UITraitCollection) in
       view.updateButtonConfigurations()
       view.setNeedsLayout()
@@ -106,7 +123,9 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   func setTabs(_ newTabs: [FabBarTabDescriptor], replacingIdentity: Bool = false) {
     guard replacingIdentity || newTabs != tabs else { return }
     cancelSelectionDrag()
+    horizontalControl.cancelInteraction()
     dismissNavigationMenu()
+    let hadNavigationFocus = containsNavigationFocus
     let focusedIdentifier = buttons.first { $0.accessibilityElementIsFocused() }?.accessibilityIdentifier
     tabs = newTabs
     let rebuildsButtons = replacingIdentity || buttons.count != newTabs.count
@@ -121,12 +140,23 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
         return button
       }
     }
+    let rebuildsSegments = replacingIdentity || horizontalControl.numberOfSegments != newTabs.count
+    if rebuildsSegments {
+      horizontalControl.removeAllSegments()
+      for index in newTabs.indices {
+        horizontalControl.insertSegment(with: UIImage(systemName: "circle"), at: index, animated: false)
+      }
+      horizontalBaseViews = newTabs.map { TabItemContentView(title: $0.title, image: $0.image) }
+      horizontalAccentViews = newTabs.map { TabItemContentView(title: $0.title, image: $0.image) }
+      horizontalControl.configureContentViews(horizontalBaseViews, accentViews: horizontalAccentViews)
+    }
     updateButtonConfigurations()
+    updateRendererVisibility()
     updateSelection(animated: false)
     setNeedsLayout()
-    if rebuildsButtons, let focusedIdentifier {
-      let replacement = isCollapsed ? navigationMenuButton
-        : buttons.first { $0.accessibilityIdentifier == focusedIdentifier }
+    if (rebuildsButtons || rebuildsSegments), hadNavigationFocus {
+      let replacement: Any? = isCollapsed ? navigationMenuButton : isVertical
+        ? buttons.first { $0.accessibilityIdentifier == focusedIdentifier } : selectedAccessibilityTarget
       UIAccessibility.post(notification: .layoutChanged, argument: replacement)
     }
   }
@@ -168,18 +198,93 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
       button.largeContentTitle = tab.title
       button.largeContentImage = tab.image
     }
+    updateHorizontalContent(hidesTitles: hidesTitles)
     updateNavigationMenu()
   }
 
   private var shouldHideTitles: Bool {
     guard !isVertical, !traitCollection.preferredContentSizeCategory.isAccessibilityCategory else { return true }
     guard !tabs.isEmpty, bounds.width > 0 else { return false }
-    let font = UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
+    let font = UIFont.systemFont(ofSize: Constants.tabTitleFontSize, weight: .semibold)
     let availableWidth = bounds.width / CGFloat(tabs.count) - 8
-    let availableHeight = bounds.height - Constants.tabIconPointSize - 2 - 4
-    return font.lineHeight > availableHeight || tabs.contains {
+    let availableHeight = bounds.height - 1
+    return Constants.iconViewSize + font.lineHeight > availableHeight || tabs.contains {
       ($0.title as NSString).size(withAttributes: [.font: font]).width > availableWidth
     }
+  }
+
+  private func updateHorizontalContent(hidesTitles: Bool) {
+    horizontalControl.activeTintColor = activeTintColor
+    horizontalControl.selectedSegmentTintColor = UIColor.label.withAlphaComponent(
+      traitCollection.userInterfaceStyle == .dark ? 0.15 : 0.08)
+    horizontalControl.segmentAccessibilityIdentifiers = tabs.enumerated().map {
+      $0.element.accessibilityIdentifier ?? "FabBar.tab.\($0.offset)"
+    }
+    for (index, tab) in tabs.enumerated() where horizontalBaseViews.indices.contains(index) {
+      if horizontalControl.titleForSegment(at: index) != tab.title {
+        horizontalControl.setTitle(tab.title, forSegmentAt: index)
+      }
+      let width = tabs.count < 3 ? Constants.fewTabsSegmentWidth : 0
+      if horizontalControl.widthForSegment(at: index) != width {
+        horizontalControl.setWidth(width, forSegmentAt: index)
+      }
+      horizontalBaseViews[index].update(title: tab.title, image: tab.image, showsTitle: !hidesTitles)
+      horizontalAccentViews[index].update(title: tab.title, image: tab.image, showsTitle: !hidesTitles)
+    }
+    horizontalControl.setNeedsLayout()
+  }
+
+  @objc private func horizontalSelectionChanged(_ control: UISegmentedControl) {
+    guard !isVertical, !isCollapsed, tabs.indices.contains(control.selectedSegmentIndex),
+          control.selectedSegmentIndex != selectedSegmentIndex else { return }
+    selectedSegmentIndex = control.selectedSegmentIndex
+    sendActions(for: .valueChanged)
+  }
+
+  private func updateRendererVisibility() {
+    horizontalControl.isHidden = isVertical || isCollapsed
+    horizontalControl.accessibilityElementsHidden = horizontalControl.isHidden
+    horizontalControl.isRendererActive = !horizontalControl.isHidden && window != nil
+    stack.isHidden = !isVertical || isCollapsed
+    stack.accessibilityElementsHidden = stack.isHidden
+    navigationMenuButton.isHidden = !isCollapsed
+    navigationMenuButton.accessibilityElementsHidden = !isCollapsed
+    selectionView.isHidden = !isVertical && !isCollapsed
+    if isCollapsed {
+      accessibilityElements = [navigationMenuButton]
+    } else if isVertical {
+      accessibilityElements = buttons
+    } else {
+      // Preserve UIKit's native per-segment accessibility container.
+      accessibilityElements = nil
+    }
+  }
+
+  private var containsNavigationFocus: Bool {
+    func containsFocus(_ view: UIView) -> Bool {
+      view.accessibilityElementIsFocused() || view.subviews.contains(where: containsFocus)
+    }
+    return containsFocus(self) || (horizontalControl.accessibilityElements?.contains {
+      ($0 as? UIAccessibilityElement)?.accessibilityElementIsFocused() == true
+    } ?? false)
+  }
+
+  private var selectedAccessibilityTarget: Any? {
+    if isCollapsed { return navigationMenuButton }
+    guard tabs.indices.contains(selectedSegmentIndex) else { return nil }
+    if isVertical { return buttons[selectedSegmentIndex] }
+    if let element = horizontalControl.accessibilityElement(at: selectedSegmentIndex) { return element }
+    let identifier = tabs[selectedSegmentIndex].accessibilityIdentifier ?? "FabBar.tab.\(selectedSegmentIndex)"
+    func find(_ view: UIView) -> UIView? {
+      if view.accessibilityIdentifier == identifier { return view }
+      return view.subviews.lazy.compactMap { find($0) }.first
+    }
+    return find(horizontalControl) ?? horizontalControl
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    updateRendererVisibility()
   }
 
   /// Dismisses only this button's native chooser, never a host presentation.
@@ -191,10 +296,10 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   }
 
   override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-    guard !isCollapsed, !traitCollection.preferredContentSizeCategory.isAccessibilityCategory,
+    guard isVertical, !isCollapsed, !traitCollection.preferredContentSizeCategory.isAccessibilityCategory,
           let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
     let translation = pan.translation(in: self)
-    return isVertical ? abs(translation.y) > abs(translation.x) : abs(translation.x) > abs(translation.y)
+    return abs(translation.y) > abs(translation.x)
   }
 
   @objc private func selectionDragged(_ recognizer: UIPanGestureRecognizer) {
@@ -204,7 +309,7 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   /// Preview locally while dragging; navigation receives a single committed
   /// selection at release, matching the previous segmented-control behavior.
   func processSelectionDrag(at point: CGPoint, state: UIGestureRecognizer.State) {
-    guard !isCollapsed, !buttons.isEmpty else { cancelSelectionDrag(); return }
+    guard isVertical, !isCollapsed, !buttons.isEmpty else { cancelSelectionDrag(); return }
     switch state {
     case .began:
       dragOriginalIndex = selectedSegmentIndex
@@ -272,8 +377,14 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
       button.accessibilityTraits = index == selectedSegmentIndex ? [.button, .selected] : [.button]
       button.configuration?.baseForegroundColor = index == selectedSegmentIndex ? activeTintColor : .label
     }
+    let nativeSelection = tabs.indices.contains(selectedSegmentIndex) ? selectedSegmentIndex : UISegmentedControl.noSegment
+    if horizontalControl.selectedSegmentIndex != nativeSelection {
+      horizontalControl.selectedSegmentIndex = nativeSelection
+    }
     updateNavigationMenu()
+    updateRendererVisibility()
     layoutIfNeeded()
+    guard isVertical || isCollapsed else { return }
     let target: CGRect
     if isCollapsed {
       target = bounds
@@ -291,7 +402,6 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     } else {
       selectionView.frame = target
     }
-    accessibilityElements = isCollapsed ? [navigationMenuButton] : buttons
   }
 
   override func layoutSubviews() {
@@ -299,6 +409,10 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     if lastTitleVisibility != shouldHideTitles { updateButtonConfigurations() }
     stack.semanticContentAttribute = effectiveUserInterfaceLayoutDirection == .rightToLeft
       ? .forceRightToLeft : .forceLeftToRight
+    horizontalControl.semanticContentAttribute = stack.semanticContentAttribute
+    horizontalControl.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 1))
+    horizontalControl.setNeedsLayout()
+    horizontalControl.layoutIfNeeded()
     stack.frame = bounds
     navigationMenuButton.frame = bounds
     stack.layoutIfNeeded()
