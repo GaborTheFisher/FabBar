@@ -74,6 +74,9 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   override init(frame: CGRect) {
     let glass = UIGlassEffect()
     glass.isInteractive = true
+    // Match the native selected lens: a neutral lift in light appearance and
+    // a darker surface in dark appearance, with the accent confined to icons.
+    glass.tintColor = UIColor.systemBackground.withAlphaComponent(0.4)
     selectionView = UIVisualEffectView(effect: glass)
     super.init(frame: frame)
     isAccessibilityElement = false
