@@ -12,7 +12,7 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
 
     XCTAssertTrue(subject.segmentedControl.isVertical)
     XCTAssertFalse(subject.segmentedControl.isCollapsed)
-    XCTAssertEqual(subject.fabGlassView.frame.height, 62, accuracy: 0.1)
+    XCTAssertEqual(subject.fabGlassView.frame.height, 50, accuracy: 0.1)
     XCTAssertEqual(subject.segmentedGlassView.frame.maxY + 8, subject.fabGlassView.frame.minY, accuracy: 0.1)
     XCTAssertTrue(subject.segmentedControl.buttons.allSatisfy { $0.bounds.height >= 44 })
     for button in subject.segmentedControl.buttons + [subject.fabButton] {
@@ -24,10 +24,49 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
+  func testNativeReferenceRailGeometryKeepsFullHitTargetsAcrossCountsDensityAndAX5() {
+    for density in [FabBarDensity.regular, .compact] {
+      for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+        for (count, capsuleHeight, totalHeight) in [(2, CGFloat(112), CGFloat(170)), (3, 162, 220), (4, 212, 270)] {
+          let subject = makeSubject(tabCount: count)
+          let window = host(subject, placement: .trailing, length: totalHeight, density: density)
+          window.traitOverrides.preferredContentSizeCategory = category
+          subject.setNeedsLayout()
+          subject.layoutIfNeeded()
+          let context = "\(count) tabs, \(density), \(category)"
+          let control = subject.segmentedControl
+          XCTAssertEqual(subject.bounds.width, 50, accuracy: 0.1, context)
+          XCTAssertEqual(subject.segmentedGlassView.bounds.size,
+            CGSize(width: 50, height: capsuleHeight), context)
+          XCTAssertEqual(control.frame.minY, 6, accuracy: 0.1, context)
+          XCTAssertEqual(subject.segmentedGlassView.bounds.maxY - control.frame.maxY, 6, accuracy: 0.1, context)
+          XCTAssertEqual(subject.fabButton.bounds.size, CGSize(width: 50, height: 50), context)
+          XCTAssertFalse(control.isCollapsed, context)
+          XCTAssertEqual(control.buttons.count, count, context)
+          var centers: [CGFloat] = []
+          for button in control.buttons {
+            XCTAssertGreaterThanOrEqual(button.bounds.width, 44, context)
+            XCTAssertGreaterThanOrEqual(button.bounds.height, 44, context)
+            XCTAssertEqual(button.bounds.height, 50, accuracy: 0.1, context)
+            XCTAssertNotNil(button.accessibilityLabel, context)
+            XCTAssertTrue(button.showsLargeContentViewer, context)
+            assertReceivesTouches(button, in: window)
+            centers.append(button.convert(button.bounds, to: subject).midY)
+          }
+          for (first, second) in zip(centers, centers.dropFirst()) {
+            XCTAssertEqual(second - first, 50, accuracy: 0.1, context)
+          }
+          assertReceivesTouches(subject.fabButton, in: window)
+          window.isHidden = true
+        }
+      }
+    }
+  }
+
   func testConstrainedVerticalNavigationCollapsesWhilePrimaryActionRemainsDirect() {
     var calls = 0
     let subject = makeSubject(primary: { calls += 1 })
-    let window = host(subject, placement: .trailing, length: 132)
+    let window = host(subject, placement: .trailing, length: 108)
 
     XCTAssertTrue(subject.segmentedControl.isCollapsed)
     XCTAssertEqual(subject.segmentedControl.navigationMenuButton.menu?.children.count, 4)
@@ -36,7 +75,7 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
 
     XCTAssertEqual(calls, 1)
     XCTAssertFalse(subject.isExpanded)
-    XCTAssertEqual(subject.fabButton.bounds.size, CGSize(width: 62, height: 62))
+    XCTAssertEqual(subject.fabButton.bounds.size, CGSize(width: 50, height: 50))
     withExtendedLifetime(window) {}
   }
 
@@ -63,8 +102,8 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     dispatchNativeValueChanged(native)
     XCTAssertEqual(subject.segmentedControl.selectedSegmentIndex, 1)
 
-    subject.updateLayout(placement: .trailing, density: .regular, maximumLength: 132)
-    subject.frame = CGRect(x: 316, y: 650, width: 62, height: 132)
+    subject.updateLayout(placement: .trailing, density: .regular, maximumLength: 108)
+    subject.frame = CGRect(x: 316, y: 650, width: 50, height: 108)
     subject.layoutIfNeeded()
 
     XCTAssertTrue(subject.segmentedControl.horizontalControl === native)
@@ -77,6 +116,15 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     XCTAssertTrue(subject.segmentedControl.isCollapsed)
     XCTAssertEqual(subject.segmentedControl.navigationMenuButton.accessibilityLabel, "Precision")
     assertReceivesTouches(subject.segmentedControl.navigationMenuButton, in: window)
+    subject.updateLayout(placement: .bottom, density: .regular, maximumLength: nil)
+    subject.frame = CGRect(x: 12, y: 740, width: 366, height: 62)
+    subject.layoutIfNeeded()
+    XCTAssertTrue(subject.segmentedControl.horizontalControl === native)
+    XCTAssertTrue(subject.fabButton === primary)
+    XCTAssertFalse(native.isHidden)
+    XCTAssertEqual(native.selectedSegmentIndex, 1)
+    assertReceivesTouches(native, in: window)
+    assertReceivesTouches(primary, in: window)
     XCTAssertEqual(changes, [2, 1], "Axis and density changes must not emit additional destination changes")
     withExtendedLifetime(window) {}
   }
@@ -339,7 +387,7 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
       FabBarAction(systemImage: "plus", accessibilityLabel: "Add a precision reading for the selected watch \(index)", action: {})
     }
     let subject = makeSubject(secondary: actions)
-    let window = host(subject, placement: .trailing, length: 112,
+    let window = host(subject, placement: .trailing, length: 108,
       windowSize: CGSize(width: 640, height: 320))
     window.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
     subject.layoutIfNeeded()
@@ -475,25 +523,27 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
       "The visible renderer must receive touches: \(view.accessibilityIdentifier ?? "view")", file: file, line: line)
   }
 
-  private func makeSubject(primary: @escaping () -> Void = {}, secondary: [FabBarAction] = []) -> GlassTabBarView {
+  private func makeSubject(primary: @escaping () -> Void = {}, secondary: [FabBarAction] = [], tabCount: Int = 4) -> GlassTabBarView {
     let control = FabBarTabControl()
-    control.setTabs(["Collection", "Precision", "Feed", "Profile"].enumerated().map { index, title in
+    control.setTabs(["Collection", "Precision", "Feed", "Profile"].prefix(tabCount).enumerated().map { index, title in
       FabBarTabDescriptor(title: title, image: UIImage(systemName: "circle"), accessibilityIdentifier: "tab.\(index)")
     })
-    return GlassTabBarView(segmentedControl: control, tabCount: 4,
+    return GlassTabBarView(segmentedControl: control, tabCount: tabCount,
       action: FabBarAction(systemImage: "waveform", accessibilityLabel: "Measure", action: primary),
       secondaryActions: secondary, isSecondaryActionMenuEnabled: !secondary.isEmpty)
   }
 
-  private func host(_ subject: GlassTabBarView, placement: FabBarPlacement, length: CGFloat = 318,
-    windowSize: CGSize = CGSize(width: 390, height: 844)) -> UIWindow {
+  private func host(_ subject: GlassTabBarView, placement: FabBarPlacement, length: CGFloat = 270,
+    windowSize: CGSize = CGSize(width: 390, height: 844), density: FabBarDensity = .regular) -> UIWindow {
     let window = UIWindow(frame: CGRect(origin: .zero, size: windowSize))
     window.isHidden = false
-    subject.updateLayout(placement: placement, density: .regular, maximumLength: length)
+    subject.updateLayout(placement: placement, density: density, maximumLength: length)
+    let thickness = density.barThickness(for: placement)
     subject.frame = placement.isVertical
-      ? CGRect(x: placement == .leading ? 12 : windowSize.width - 74,
-        y: max(12, windowSize.height - length - 24), width: 62, height: length)
-      : CGRect(x: 12, y: windowSize.height - 86, width: windowSize.width - 24, height: 62)
+      ? CGRect(x: placement == .leading ? 24 : windowSize.width - thickness - 24,
+        y: max(12, windowSize.height - length - 24), width: thickness, height: length)
+      : CGRect(x: 12, y: windowSize.height - thickness - 24,
+        width: windowSize.width - 24, height: thickness)
     window.addSubview(subject)
     window.layoutIfNeeded()
     subject.setNeedsLayout()

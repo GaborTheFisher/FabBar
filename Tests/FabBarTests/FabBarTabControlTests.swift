@@ -317,7 +317,7 @@ final class FabBarTabControlTests: XCTestCase {
 
   private func layout(_ subject: FabBarTabControl, vertical: Bool, size: CGSize? = nil) {
     subject.isVertical = vertical
-    subject.frame.size = size ?? (vertical ? CGSize(width: 58, height: 244) : CGSize(width: 300, height: 58))
+    subject.frame.size = size ?? (vertical ? CGSize(width: 46, height: 200) : CGSize(width: 300, height: 58))
     subject.setNeedsLayout()
     subject.layoutIfNeeded()
     subject.horizontalControl.layoutIfNeeded()

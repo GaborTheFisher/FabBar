@@ -36,16 +36,22 @@ import SwiftUI
 /// Coarse density presets for the bar.
 ///
 /// Density is a plain parameter. Hosts that adapt to short windows pass
-/// `.compact`; automatic placement changes the edge without changing density.
-/// The primary action and navigation hit regions derive from this thickness.
+/// `.compact`; horizontal bars use that density while side bars retain the
+/// native 50pt width. Automatic placement changes the edge without changing state.
 @available(iOS 26.0, *)
 public enum FabBarDensity: Sendable, Equatable {
-  /// The standard 62pt bar.
+  /// The standard 62pt horizontal bar.
   case regular
-  /// A 52pt bar for compact-height windows. The interior still fits the
+  /// A 52pt horizontal bar for compact-height windows. The interior still fits the
   /// icon-plus-title tab items (52 − 2 × content padding − 1 ≥ the ~40pt
   /// tab-item intrinsic height), so no icon-only fallback is required.
   case compact
+
+  /// Surface thickness for a resolved placement. Side navigation has a fixed
+  /// native width; horizontal navigation keeps this preset's label sizing.
+  public func barThickness(for placement: FabBarPlacement) -> CGFloat {
+    placement.isVertical ? Constants.verticalBarWidth : barHeight
+  }
 
   var barHeight: CGFloat {
     switch self {
@@ -132,7 +138,7 @@ public struct FabBar<Value: Hashable>: View {
   private func resolvedBar(placement: FabBarPlacement) -> some View {
     if tabs.isEmpty {
       Color.clear
-        .frame(height: density.barHeight)
+        .frame(height: density.barThickness(for: placement))
         .onAppear {
           fabBarLogger.warning("FabBar initialized with empty tabs array - nothing will be displayed")
         }
@@ -149,7 +155,7 @@ public struct FabBar<Value: Hashable>: View {
         activeTab: $selection
       )
       .frame(
-        width: placement.isVertical ? density.barHeight : nil,
+        width: placement.isVertical ? density.barThickness(for: placement) : nil,
         height: placement.isVertical
           ? FabBarLayoutPolicy.verticalLength(tabCount: tabs.count, density: density, maximumLength: maximumLength)
           : density.barHeight

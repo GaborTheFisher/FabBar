@@ -74,7 +74,6 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
   override init(frame: CGRect) {
     let glass = UIGlassEffect()
     glass.isInteractive = true
-    glass.tintColor = UIColor.label.withAlphaComponent(0.10)
     selectionView = UIVisualEffectView(effect: glass)
     super.init(frame: frame)
     isAccessibilityElement = false
@@ -182,7 +181,7 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
       configuration.background.backgroundColor = .clear
       configuration.image = tab.image
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-        pointSize: Constants.tabIconPointSize, weight: .medium)
+        pointSize: isVertical ? Constants.verticalTabIconPointSize : Constants.tabIconPointSize, weight: .medium)
       configuration.imagePlacement = .top
       configuration.imagePadding = 2
       configuration.contentInsets = .zero
@@ -355,7 +354,7 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     configuration.background.backgroundColor = .clear
     configuration.image = selected.image
     configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-      pointSize: Constants.tabIconPointSize, weight: .medium)
+      pointSize: isVertical ? Constants.verticalTabIconPointSize : Constants.tabIconPointSize, weight: .medium)
     configuration.baseForegroundColor = activeTintColor
     configuration.contentInsets = .zero
     navigationMenuButton.configuration = configuration
@@ -389,7 +388,7 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     if isCollapsed {
       target = bounds
     } else if buttons.indices.contains(selectedSegmentIndex) {
-      target = buttons[selectedSegmentIndex].convert(buttons[selectedSegmentIndex].bounds, to: self)
+      target = selectionFrame(at: selectedSegmentIndex)
     } else {
       selectionView.isHidden = true
       return
@@ -402,6 +401,13 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     } else {
       selectionView.frame = target
     }
+  }
+
+  private func selectionFrame(at index: Int) -> CGRect {
+    let frame = buttons[index].convert(buttons[index].bounds, to: self)
+    guard isVertical else { return frame }
+    return CGRect(x: frame.minX, y: frame.midY - Constants.verticalSelectionHeight / 2,
+      width: frame.width, height: Constants.verticalSelectionHeight)
   }
 
   override func layoutSubviews() {
@@ -418,7 +424,7 @@ final class FabBarTabControl: UIControl, UIGestureRecognizerDelegate {
     stack.layoutIfNeeded()
     let target = isCollapsed ? bounds
       : buttons.indices.contains(selectedSegmentIndex)
-        ? buttons[selectedSegmentIndex].convert(buttons[selectedSegmentIndex].bounds, to: self)
+        ? selectionFrame(at: selectedSegmentIndex)
         : .zero
     selectionView.frame = target
   }

@@ -51,7 +51,8 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
                                 collapseTrigger: collapseTrigger,
                                 density: density,
                                 placement: resolvedPlacement,
-                                maximumLength: max(0, geometry.size.height - 2 * Constants.bottomPadding)
+                                maximumLength: max(0, geometry.size.height - 2 * (resolvedPlacement.isVertical
+                                    ? Constants.sidePadding : Constants.bottomPadding))
                             )
                             .frame(maxWidth: resolvedPlacement.isVertical ? nil
                                 : FabBarModifierLayout.maximumBarWidth(horizontalSizeClass: horizontalSizeClass))
@@ -62,7 +63,7 @@ struct FabBarModifier<Value: Hashable>: ViewModifier {
                             .padding(.horizontal, resolvedPlacement.isVertical ? 0 : Constants.horizontalPadding)
                             .padding(.leading, resolvedPlacement == .leading ? Constants.sidePadding : 0)
                             .padding(.trailing, resolvedPlacement == .trailing ? Constants.sidePadding : 0)
-                            .padding(.bottom, Constants.bottomPadding)
+                            .padding(.bottom, resolvedPlacement.isVertical ? Constants.sidePadding : Constants.bottomPadding)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: resolvedPlacement.alignment)
                         }
                     }
@@ -122,7 +123,8 @@ enum FabBarModifierLayout {
     }
 
     static func fallbackInsets(placement: FabBarPlacement, density: FabBarDensity) -> EdgeInsets {
-        let clearance = density.barHeight + (placement.isVertical ? Constants.sidePadding : Constants.bottomPadding)
+        let clearance = density.barThickness(for: placement)
+            + (placement.isVertical ? Constants.sidePadding : Constants.bottomPadding)
         switch placement {
         case .leading: return EdgeInsets(top: 0, leading: clearance, bottom: 0, trailing: 0)
         case .trailing: return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: clearance)

@@ -100,6 +100,7 @@ final class FabBarMeasuredClearanceTests: XCTestCase {
         if placement != .leading { XCTAssertEqual(record.insets.leading, 0, context) }
         if placement != .trailing { XCTAssertEqual(record.insets.trailing, 0, context) }
         if placement.isVertical {
+          XCTAssertEqual(barFrame.width, 50, accuracy: 0.5, context)
           let isPhysicalLeft = (placement == .leading) == (direction == .leftToRight)
           let edgeDistance = isPhysicalLeft ? barFrame.minX : window.bounds.maxX - barFrame.maxX
           XCTAssertEqual(edgeDistance, Constants.sidePadding, accuracy: 0.5, context)

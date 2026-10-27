@@ -70,7 +70,12 @@ private struct PreferredFabBarPlacementReader<Content: View>: View {
 @available(iOS 26.0, *)
 enum FabBarLayoutPolicy {
   static func nominalVerticalLength(tabCount: Int, density: FabBarDensity) -> CGFloat {
-    CGFloat(max(1, tabCount) + 1) * density.barHeight + Constants.fabSpacing
+    navigationVerticalLength(tabCount: tabCount)
+      + Constants.fabSpacing + density.barThickness(for: .trailing)
+  }
+
+  static func navigationVerticalLength(tabCount: Int) -> CGFloat {
+    CGFloat(max(1, tabCount)) * Constants.verticalTabHeight + 2 * Constants.verticalContentPadding
   }
 
   static func verticalLength(
@@ -83,7 +88,7 @@ enum FabBarLayoutPolicy {
           nominal > maximumLength else { return nominal }
     // Preserve two full hit regions: the navigation chooser and primary
     // action. The host can reserve this minimum without shrinking controls.
-    return 2 * density.barHeight + Constants.fabSpacing
+    return 2 * density.barThickness(for: .trailing) + Constants.fabSpacing
   }
 }
 

@@ -220,7 +220,7 @@ on tabs.
 
 The modifier publishes `fabBarPlacement`, `fabBarFrame` (global coordinates),
 and `fabBarSafeAreaInsets` (additional host-local clearances). Side chrome uses
-the horizontal system-reserved strip when available, with a 16pt window-edge
+the horizontal system-reserved strip when available, with a 24pt window-edge
 inset. Content keeps its original safe areas; a rail that fits entirely inside
 an existing strip publishes zero additional clearance. `fabBarSafeAreaPadding()`
 clears only the remaining overlap. Apply it once to foreground content.
@@ -260,6 +260,14 @@ minimum instead of shrinking hit targets. Qualify outer/inner displays, both
 Split View sides, short windows, accessibility text sizes, VoiceOver, Large
 Content Viewer and Reduce Transparency on the supported runtime versions.
 Native tab reselection is still host-owned: use `onReselect` for scroll-to-top.
+
+Side navigation uses a 50pt-wide glass capsule with 50pt tab spacing and 6pt
+padding at each end (162pt for three destinations, 212pt for four). Its separate
+primary action is 50pt across. These side metrics stay stable in both density
+presets; horizontal placement retains the original 62pt/52pt segmented control.
+Hosts can use `density.barThickness(for: resolvedPlacement)` when reserving space.
+Automatic placement follows `toolbarVerticalEdge`: side bars on Duo's outer
+display and inner landscape, horizontal segmented navigation in inner portrait.
 
 ## License
 

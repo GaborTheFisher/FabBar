@@ -13,35 +13,47 @@ final class FabBarPlacementTests: XCTestCase {
     XCTAssertEqual(FabBarPlacement.trailing.resolved(preferredVerticalEdge: nil), .trailing)
   }
 
-  func testSideRailRetainsAllDestinationsWhenThereIsRoom() {
-    XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-      tabCount: 4, density: .regular, maximumLength: 600), 318)
-    XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-      tabCount: 4, density: .compact, maximumLength: 300), 268)
+  func testSideRailRetainsNativeDimensionsForBothDensityPresets() {
+    for density in [FabBarDensity.regular, .compact] {
+      XCTAssertEqual(density.barThickness(for: .leading), 50)
+      XCTAssertEqual(density.barThickness(for: .trailing), 50)
+      for (tabCount, expectedLength) in [(2, CGFloat(170)), (3, 220), (4, 270)] {
+        XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
+          tabCount: tabCount, density: density, maximumLength: 600), expectedLength)
+      }
+    }
+    XCTAssertEqual(FabBarDensity.regular.barThickness(for: .bottom), 62)
+    XCTAssertEqual(FabBarDensity.compact.barThickness(for: .bottom), 52)
   }
 
   func testShortRailKeepsSeparateNavigationAndActionHitRegions() {
-    XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-      tabCount: 4, density: .regular, maximumLength: 240), 132)
-    XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-      tabCount: 4, density: .compact, maximumLength: 220), 112)
+    for density in [FabBarDensity.regular, .compact] {
+      XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
+        tabCount: 4, density: density, maximumLength: 240), 108)
+      XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
+        tabCount: 4, density: density, maximumLength: 100), 108,
+        "Compression must retain two full 50pt controls even below its minimum")
+    }
   }
 
   func testRailCompressionBoundaryTriplets() {
-    for length in [CGFloat(317), 318, 319] {
-      XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-        tabCount: 4, density: .regular, maximumLength: length), length < 318 ? 132 : 318)
-    }
-    for length in [CGFloat(267), 268, 269] {
-      XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-        tabCount: 4, density: .compact, maximumLength: length), length < 268 ? 112 : 268)
+    for density in [FabBarDensity.regular, .compact] {
+      for (tabCount, fullLength) in [(2, CGFloat(170)), (3, 220), (4, 270)] {
+        for length in [fullLength - 1, fullLength, fullLength + 1] {
+          XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
+            tabCount: tabCount, density: density, maximumLength: length),
+            length < fullLength ? 108 : fullLength)
+        }
+      }
     }
   }
 
   func testUnknownLengthDoesNotPrematurelyCollapseNavigation() {
-    for length in [CGFloat?.none, .some(0), .some(.nan), .some(.infinity)] {
-      XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
-        tabCount: 4, density: .regular, maximumLength: length), 318)
+    for density in [FabBarDensity.regular, .compact] {
+      for length in [CGFloat?.none, .some(0), .some(.nan), .some(.infinity)] {
+        XCTAssertEqual(FabBarLayoutPolicy.verticalLength(
+          tabCount: 4, density: density, maximumLength: length), 270)
+      }
     }
   }
 

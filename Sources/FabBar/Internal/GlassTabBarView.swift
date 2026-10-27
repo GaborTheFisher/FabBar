@@ -190,7 +190,7 @@ final class GlassTabBarView: UIView {
       let actionY = max(0, bounds.height - thickness)
       fabGlassView.frame = CGRect(x: 0, y: actionY, width: bounds.width, height: thickness)
       let available = max(0, actionY - gap)
-      segmentedControl.isCollapsed = available + 1 < CGFloat(tabCount) * thickness
+      segmentedControl.isCollapsed = available + 1 < FabBarLayoutPolicy.navigationVerticalLength(tabCount: tabCount)
       navigationFrame = CGRect(x: 0, y: 0, width: bounds.width, height: available)
     } else {
       let fabX = isRTL ? 0 : max(0, bounds.width - thickness)
@@ -205,7 +205,9 @@ final class GlassTabBarView: UIView {
     }
     segmentedGlassView.frame = navigationFrame
     segmentedControl.frame = segmentedGlassView.bounds.insetBy(
-      dx: Constants.contentPadding, dy: Constants.contentPadding)
+      dx: Constants.contentPadding,
+      dy: placement.isVertical && !segmentedControl.isCollapsed
+        ? Constants.verticalContentPadding : Constants.contentPadding)
     segmentedControl.setNeedsLayout()
     segmentedControl.layoutIfNeeded()
     fabButton.frame = fabGlassView.bounds
