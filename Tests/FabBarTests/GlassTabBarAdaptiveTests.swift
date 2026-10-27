@@ -283,6 +283,92 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
     withExtendedLifetime((window, controller, obsolete, replacement)) {}
   }
 
+  func testExpandedPrimaryKeepsItsBoundsAndContentCenteredThroughRelayoutAndResize() throws {
+    let controller = UIHostingController(rootView: Image(systemName: "plus")
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .ignoresSafeArea())
+    let hostedView = try XCTUnwrap(controller.view)
+    let marker = UIView()
+    marker.isUserInteractionEnabled = false
+    marker.translatesAutoresizingMaskIntoConstraints = false
+    hostedView.addSubview(marker)
+    NSLayoutConstraint.activate([
+      marker.centerXAnchor.constraint(equalTo: hostedView.centerXAnchor),
+      marker.centerYAnchor.constraint(equalTo: hostedView.centerYAnchor),
+      marker.widthAnchor.constraint(equalToConstant: 20),
+      marker.heightAnchor.constraint(equalToConstant: 20),
+    ])
+    let secondary = [FabBarAction(systemImage: "plus", accessibilityLabel: "Add reading", action: {})]
+    let subject = makeSubject(secondary: secondary)
+    subject.updateAction(FabBarAction(systemImage: "plus", accessibilityLabel: "Precision",
+      view: controller, action: {}), secondaryActions: secondary, isSecondaryActionMenuEnabled: true)
+    let window = host(subject, placement: .bottom)
+    let baselineWindowSubviews = window.subviews.count
+
+    func assertCenteredContent(_ context: String) {
+      let expected = subject.fabGlassView.bounds.size
+      XCTAssertEqual(subject.fabButton.bounds.size, expected, context)
+      XCTAssertEqual(hostedView.frame, subject.fabButton.bounds, context)
+      let localCenter = marker.convert(CGPoint(x: marker.bounds.midX, y: marker.bounds.midY),
+        to: subject.fabButton)
+      XCTAssertEqual(localCenter.x, subject.fabButton.bounds.midX, accuracy: 0.1, context)
+      XCTAssertEqual(localCenter.y, subject.fabButton.bounds.midY, accuracy: 0.1, context)
+      let markerCenter = marker.convert(CGPoint(x: marker.bounds.midX, y: marker.bounds.midY), to: window)
+      let glassCenter = subject.fabGlassView.convert(
+        CGPoint(x: subject.fabGlassView.bounds.midX, y: subject.fabGlassView.bounds.midY), to: window)
+      XCTAssertEqual(markerCenter.x, glassCenter.x, accuracy: 0.1, context)
+      XCTAssertEqual(markerCenter.y, glassCenter.y, accuracy: 0.1, context)
+      XCTAssertGreaterThanOrEqual(subject.fabButton.bounds.width, 44, context)
+      XCTAssertGreaterThanOrEqual(subject.fabButton.bounds.height, 44, context)
+    }
+
+    let layouts: [(FabBarPlacement, FabBarDensity, CGRect, CGRect)] = [
+      (.bottom, .regular, CGRect(x: 12, y: 758, width: 366, height: 62),
+        CGRect(x: 12, y: 768, width: 366, height: 52)),
+      (.bottom, .compact, CGRect(x: 12, y: 768, width: 366, height: 52),
+        CGRect(x: 20, y: 768, width: 350, height: 52)),
+      (.trailing, .regular, CGRect(x: 316, y: 550, width: 50, height: 270),
+        CGRect(x: 316, y: 550, width: 50, height: 220)),
+      (.leading, .compact, CGRect(x: 24, y: 550, width: 50, height: 270),
+        CGRect(x: 24, y: 550, width: 50, height: 240)),
+    ]
+    for (placement, density, initialFrame, resizedFrame) in layouts {
+      subject.updateLayout(placement: placement, density: density, maximumLength: 270)
+      subject.frame = initialFrame
+      subject.setNeedsLayout()
+      subject.layoutIfNeeded()
+      hostedView.layoutIfNeeded()
+      assertCenteredContent("Before opening at \(placement)/\(density)")
+      subject.fabButton.sendActions(for: .touchUpInside)
+      XCTAssertTrue(subject.isExpanded)
+      let expandedTransform = subject.fabButton.transform
+      XCTAssertNotEqual(expandedTransform, .identity)
+
+      // A normal extra layout pass must preserve square bounds while the
+      // native button is rotated, rather than inverse-fitting its frame.
+      subject.setNeedsLayout()
+      subject.layoutIfNeeded()
+      hostedView.layoutIfNeeded()
+      XCTAssertTrue(subject.isExpanded)
+      XCTAssertEqual(subject.fabButton.transform, expandedTransform)
+      assertCenteredContent("Expanded relayout at \(placement)/\(density)")
+
+      // SwiftUI can supply the new frame before updateLayout receives its
+      // matching density/axis. This layout closes the old chooser only after
+      // positioning its button, so the transform is still nonidentity then.
+      subject.frame = resizedFrame
+      subject.setNeedsLayout()
+      subject.layoutIfNeeded()
+      hostedView.layoutIfNeeded()
+      XCTAssertFalse(subject.isExpanded)
+      XCTAssertEqual(subject.fabButton.transform, .identity)
+      assertCenteredContent("Resize collapsed chooser at \(placement)/\(density)")
+      XCTAssertEqual(window.subviews.count, baselineWindowSubviews)
+      assertReceivesTouches(subject.fabButton, in: window)
+    }
+    withExtendedLifetime((window, controller, subject)) {}
+  }
+
   func testSecondaryMenusOpenInwardOnBothPhysicalSidesAndCleanupAfterDispatch() {
     for placement in [FabBarPlacement.leading, .trailing] {
       var calls = 0

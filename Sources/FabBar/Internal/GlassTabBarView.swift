@@ -210,7 +210,10 @@ final class GlassTabBarView: UIView {
         ? Constants.verticalContentPadding : Constants.contentPadding)
     segmentedControl.setNeedsLayout()
     segmentedControl.layoutIfNeeded()
-    fabButton.frame = fabGlassView.bounds
+    // The chooser rotates this button. Its frame is undefined while
+    // transformed; size its untransformed bounds and position its center.
+    fabButton.bounds = CGRect(origin: .zero, size: fabGlassView.bounds.size)
+    fabButton.center = CGPoint(x: fabGlassView.bounds.midX, y: fabGlassView.bounds.midY)
     // A retained hosting view may already belong to a replacement bar. An
     // obsolete host's late layout must not resize content in its new owner.
     if let primaryCustomView, primaryCustomView.superview === fabButton {
