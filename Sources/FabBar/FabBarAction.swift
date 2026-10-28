@@ -19,6 +19,11 @@ public struct FabBarAction {
   /// An optional custom view controller to render inside the FAB instead of the default icon.
   public let customView: UIViewController?
 
+  /// Preserve the hosting controller's SwiftUI measurement after generic
+  /// content is erased to UIViewController. Compressed Auto Layout asks for
+  /// a minimum size and can allocate no width to a hosted text label.
+  internal let customViewSizeThatFits: (@MainActor (CGSize) -> CGSize)?
+
   /// Creates a floating action button configuration.
   ///
   /// - Parameters:
@@ -34,6 +39,7 @@ public struct FabBarAction {
     self.accessibilityLabel = accessibilityLabel
     self.action = action
     self.customView = nil
+    self.customViewSizeThatFits = nil
   }
 
   /// Creates a floating action button with a custom SwiftUI view.
@@ -53,5 +59,6 @@ public struct FabBarAction {
     self.accessibilityLabel = accessibilityLabel
     self.action = action
     self.customView = view
+    self.customViewSizeThatFits = { size in view.sizeThatFits(in: size) }
   }
 }

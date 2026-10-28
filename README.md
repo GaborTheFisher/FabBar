@@ -1,8 +1,6 @@
 # FabBar
 
-A faithful recreation of the iOS 26 Liquid Glass tab bar with a tinted floating action button.
-
-> **Warning:** This library relies on internal UIKit view hierarchy manipulation that may break in future iOS updates. Use at your own risk.
+A custom Liquid Glass navigation bar with a separate, tinted primary action and adaptive bottom or side placement.
 
 ![FabBar Screenshot](Assets/fabbar-screenshot.png)
 
@@ -25,13 +23,23 @@ FabBar provides one solution: recreate the tab bar entirely for full control.
 
 FabBar provides a SwiftUI API but uses UIKit internally.
 
-The key challenge in faithfully recreating the tab bar is the bubbly interactive glass effect on touch down. This effect is only available to tab bars and one other component: segmented controls. FabBar uses a `UISegmentedControl` as its foundation, hiding the default labels and overlaying custom tab item views.
+Horizontal navigation uses FabBar's original `UISegmentedControl`, with custom
+icon-and-label drawing injected into its native segments. UIKit provides the
+native glass selection appearance and interaction. Vertical navigation uses the
+custom `UIButton` rail with `UIGlassEffect` and `UIGlassContainerEffect`.
 
-Why UIKit? FabBar manipulates `UISegmentedControl`'s internal view hierarchy to hide the native labels and overlay custom views. This isn't possible with SwiftUI's Picker. Additionally, mixing custom UIKit controls with SwiftUI's `.glassEffect()` causes framerate issues during touch interactions.
+Both renderers share stable tab identities, selection and reselection callbacks,
+and primary and secondary action routing across axis changes. FabBar owns its
+placement, compression and overflow behavior; it is custom navigation rather
+than a system tab bar. See [Custom chrome responsibilities](#custom-chrome-responsibilities)
+for the host's qualification responsibilities.
 
-This approach is inherently brittle and may break across OS updates. See [Known Limitations](#known-limitations) for other tradeoffs.
+## Requirements
 
-Credit to [Kavsoft](https://youtu.be/wfHIe8GpKAU?si=ASViL-OuhqQwEWzr) for the original idea of using a segmented control to imitate a tab bar.
+- Build with the iOS 27.1 SDK or later, which declares `toolbarVerticalEdge`.
+- The supported deployment minimum is iOS 26. Runtime availability guards keep
+  automatic placement at the bottom before iOS 27.1; they do not make these
+  declarations available to an older build SDK.
 
 ## Installation
 
@@ -54,28 +62,22 @@ enum AppTab: Hashable {
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .home
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    private var tabBarVisibility: Visibility {
-        horizontalSizeClass == .compact ? .hidden : .visible
-    }
-
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("Home", systemImage: "house.fill", value: .home) {
                 HomeView()
                     .fabBarSafeAreaPadding()
-                    .toolbarVisibility(tabBarVisibility, for: .tabBar)
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
             Tab("Explore", systemImage: "compass", value: .explore) {
                 ExploreView()
                     .fabBarSafeAreaPadding()
-                    .toolbarVisibility(tabBarVisibility, for: .tabBar)
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
             Tab("Profile", systemImage: "person.fill", value: .profile) {
                 ProfileView()
                     .fabBarSafeAreaPadding()
-                    .toolbarVisibility(tabBarVisibility, for: .tabBar)
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
         .fabBar(
@@ -109,18 +111,20 @@ For more control over positioning, you can use the `FabBar` view directly.
 
 ### Adaptive Density
 
-`FabBarDensity` controls both height and the coarse tab presentation:
+`FabBarDensity` controls horizontal height and tab presentation:
 
 - `.regular` uses a 62pt, available-width strip with each label below its icon.
 - `.compact` uses a 52pt, content-hugging strip with each label trailing its
   icon. Segment widths follow their localized icon-label content, so the glass
   capsule is only as wide as its controls. If that intrinsic width cannot fit
   the local proposal, all labels collapse together and the icon-only tabs
-  share the remaining width; no tab or primary action is hidden or overflowed.
+  share the remaining width. Exceptionally narrow navigation uses the destination
+  chooser while keeping the primary action separate and reachable.
 
-FabBar deliberately does not read size classes itself. Choose the density in
-the host and keep exact obstruction/inset calculations tied to the measured
-bar frame:
+Side placement always uses the 50pt icon rail, independently of density.
+Returning to horizontal placement restores the selected density and its labels.
+Choose density in the host and keep obstruction/inset calculations tied to the
+measured bar frame:
 
 ```swift
 @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -218,34 +222,84 @@ it off also collapses an open secondary-action menu.
 
 ### Manual Positioning
 
-For more control, use the `FabBar` view directly instead of the modifier. Apply 21pt padding on all sides:
+For more control, use `FabBar` directly. The host supplies the resolved edge,
+reserves the corresponding foreground clearance, and keeps its content tree
+mounted as placement changes. Use `maximumLength` to supply a side rail's
+available height. The recommended modifier handles these measurements.
+
+## Adaptive bottom and side placement
+
+FabBar keeps its separate primary action while following the system's preferred
+vertical-bar edge on iOS 27.1 and later. On earlier iOS versions, automatic
+placement remains at the bottom. Explicit placement is available for previews,
+qualification and hosts with an independently resolved layout:
 
 ```swift
-.safeAreaBar(edge: .bottom) {
-    if horizontalSizeClass == .compact {
-        FabBar(selection: $selectedTab, tabs: tabs, action: action)
-            .padding(.horizontal, 21)
-            .padding(.bottom, 21)
-    }
-}
-.ignoresSafeArea(.container, edges: .bottom)
+.fabBar(
+    selection: $selectedTab,
+    tabs: tabs,
+    action: action,
+    placement: .automatic // .bottom, .leading or .trailing
+)
 ```
+
+Bottom layouts use an icon-and-label navigation capsule next to the action.
+Side layouts stack the navigation controls and keep the action at the lower end.
+When a short rail cannot fit every destination, navigation becomes a chooser;
+the primary action remains a separate direct control. Supply localized titles
+and accessibility labels, and optional stable `accessibilityIdentifier` values
+on tabs.
+
+The modifier publishes `fabBarPlacement`, `fabBarFrame` (global coordinates),
+and `fabBarSafeAreaInsets` (additional host-local clearances). Side chrome uses
+the horizontal system-reserved strip when available, with a 24pt window-edge
+inset. Content keeps its original safe areas; a rail that fits entirely inside
+an existing strip publishes zero additional clearance. `fabBarSafeAreaPadding()`
+clears only the remaining overlap. Apply it once to foreground content.
+Background imagery may extend underneath the glass.
+The legacy `fabBarBottomSafeAreaPadding` remains available and is zero for rails.
+
+For a custom host, resolve the edge once and keep the content tree stable:
+
+```swift
+FabBarPlacementReader { placement in
+    // Keep content and its navigation state outside placement branches.
+    FabBar(selection: $selectedTab, tabs: tabs, action: action,
+           placement: placement, maximumLength: availableHeight)
+}
+```
+
+Leading/trailing values follow layout direction. When following the system's
+preferred edge, do not mirror that result a second time. Reserve each safe-area
+edge independently. The Example app's settings allow automatic/bottom/leading/
+trailing placement and both densities; each tab has a local counter to check
+state preservation while resizing, rotating and switching layouts.
 
 ## Example
 
 See the [Example project](Example/FabBarExample) for a complete implementation.
 
-## Known Limitations
+## Custom chrome responsibilities
 
-**Large Content Viewer:** Native tab bars show the [Large Content Viewer](https://developer.apple.com/videos/play/wwdc2019/261/) on long press when using accessibility text sizes. FabBar uses a segmented control internally, which shows a popover instead. Attempts to add Large Content Viewer support were unsuccessful due to inability to disable the default popover.
+FabBar uses system glass materials but remains custom navigation chrome. Its
+placement, overflow and accessibility policies belong to the package rather
+than the native TabView. The native content host and navigation paths can stay
+unchanged while its visible tab bar is hidden.
 
-![Large Text Mode](Assets/large-text-mode.png)
+A side rail needs room for at least two full controls and their separation:
+one navigation chooser and the primary action. Hosts should preserve that
+minimum instead of shrinking hit targets. Qualify outer/inner displays, both
+Split View sides, short windows, accessibility text sizes, VoiceOver, Large
+Content Viewer and Reduce Transparency on the supported runtime versions.
+Native tab reselection is still host-owned: use `onReselect` for scroll-to-top.
 
-**VoiceOver focus after tab selection:** After activating a new tab with VoiceOver, focus may jump to the first tab instead of remaining on the selected tab.
-
-**No native tab reselection behavior:** Native tab bars automatically scroll to top when reselecting a tab. FabBar doesn't get this behavior; use the `onReselect` callback to implement it yourself.
-
-**Hardcoded dimensions:** Bar height, spacing, and font sizes are hardcoded to match iOS 26's tab bar. If Apple changes these values in future iOS versions, FabBar won't automatically update to match.
+Side navigation uses a 50pt-wide glass capsule with 50pt tab spacing and 6pt
+padding at each end (162pt for three destinations, 212pt for four). Its separate
+primary action is 50pt across. These side metrics stay stable in both density
+presets; horizontal placement retains the original 62pt/52pt segmented control.
+Hosts can use `density.barThickness(for: resolvedPlacement)` when reserving space.
+Automatic placement follows `toolbarVerticalEdge`: side bars on Duo's outer
+display and inner landscape, horizontal segmented navigation in inner portrait.
 
 ## License
 

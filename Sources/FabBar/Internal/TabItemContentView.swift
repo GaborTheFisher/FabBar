@@ -10,8 +10,8 @@ enum FabBarTabItemLayout: Int, Sendable {
 ///
 /// This view supports `NSCoding` so it survives the system accessibility popover's archive/unarchive cycle.
 /// When the popover copies segment content, it archives this view and unarchives a copy. Because the
-/// symbol name and title are encoded as simple strings, the copy can re-render via `draw(_:)` at whatever
-/// scale the popover uses — producing crisp output without any timing hacks or pre-rendered bitmaps.
+/// named-image fields, resolved image and presentation are encoded so archived
+/// copies retain their content while the native popover renders its own labels.
 @available(iOS 26.0, *)
 @objc(FabBarTabItemContentView)
 final class TabItemContentView: UIView {
@@ -19,6 +19,8 @@ final class TabItemContentView: UIView {
   private var customImageName: String = ""
   private var customImageBundleIdentifier: String = ""
   private var title: String = ""
+  private var resolvedImage: UIImage?
+  private var showsTitle = true
   private(set) var layout: FabBarTabItemLayout = .stacked
   private(set) var showsInlineTitle = true
 
@@ -57,6 +59,30 @@ final class TabItemContentView: UIView {
     contentMode = .redraw
   }
 
+  /// Keep resolved assets when stable tab identities update their content.
+  init(title: String, image: UIImage?, showsTitle: Bool = true, layout: FabBarTabItemLayout = .stacked) {
+    self.title = title
+    resolvedImage = image
+    self.showsTitle = showsTitle
+    self.layout = layout
+    super.init(frame: .zero)
+    isOpaque = false
+    isUserInteractionEnabled = false
+    contentMode = .redraw
+  }
+
+  func update(title: String, image: UIImage?, showsTitle: Bool = true, layout: FabBarTabItemLayout = .stacked) {
+    self.title = title
+    resolvedImage = image
+    symbolName = ""
+    customImageName = ""
+    customImageBundleIdentifier = ""
+    self.showsTitle = showsTitle
+    self.layout = layout
+    invalidateIntrinsicContentSize()
+    setNeedsDisplay()
+  }
+
   // MARK: - NSCoding
 
   required init?(coder: NSCoder) {
@@ -64,6 +90,8 @@ final class TabItemContentView: UIView {
     self.customImageName = coder.decodeObject(forKey: "customImageName") as? String ?? ""
     self.customImageBundleIdentifier = coder.decodeObject(forKey: "customImageBundleIdentifier") as? String ?? ""
     self.title = coder.decodeObject(forKey: "title") as? String ?? ""
+    self.resolvedImage = coder.decodeObject(forKey: "resolvedImage") as? UIImage
+    self.showsTitle = coder.containsValue(forKey: "showsTitle") ? coder.decodeBool(forKey: "showsTitle") : true
     self.layout = FabBarTabItemLayout(rawValue: coder.decodeInteger(forKey: "layout")) ?? .stacked
     self.showsInlineTitle = coder.containsValue(forKey: "showsInlineTitle")
       ? coder.decodeBool(forKey: "showsInlineTitle")
@@ -80,6 +108,8 @@ final class TabItemContentView: UIView {
     coder.encode(customImageName, forKey: "customImageName")
     coder.encode(customImageBundleIdentifier, forKey: "customImageBundleIdentifier")
     coder.encode(title, forKey: "title")
+    coder.encode(resolvedImage, forKey: "resolvedImage")
+    coder.encode(showsTitle, forKey: "showsTitle")
     coder.encode(layout.rawValue, forKey: "layout")
     coder.encode(showsInlineTitle, forKey: "showsInlineTitle")
   }
@@ -102,7 +132,7 @@ final class TabItemContentView: UIView {
   // MARK: - Sizing
 
   override var intrinsicContentSize: CGSize {
-    let textSize = (title as NSString).size(withAttributes: [.font: font])
+    let textSize = showsTitle ? (title as NSString).size(withAttributes: [.font: font]) : .zero
     let icon = loadIcon()
     switch layout {
     case .stacked:
@@ -110,7 +140,7 @@ final class TabItemContentView: UIView {
       return CGSize(width: contentWidth, height: Constants.iconViewSize + textSize.height)
     case .inline:
       let hasIcon = icon != nil
-      let hasTitle = !title.isEmpty
+      let hasTitle = showsTitle && !title.isEmpty
       let iconWidth = hasIcon ? Constants.iconViewSize : 0
       let spacing = hasIcon && hasTitle ? Constants.inlineIconTitleSpacing : 0
       return CGSize(
@@ -130,7 +160,7 @@ final class TabItemContentView: UIView {
       .font: font,
       .foregroundColor: tintColor,
     ]
-    let textSize = (title as NSString).size(withAttributes: textAttributes)
+    let textSize = showsTitle ? (title as NSString).size(withAttributes: textAttributes) : .zero
 
     switch layout {
     case .stacked:
@@ -149,7 +179,9 @@ final class TabItemContentView: UIView {
       scale: .large
     )
 
-    if !symbolName.isEmpty {
+    if let resolvedImage {
+      return resolvedImage.applyingSymbolConfiguration(config) ?? resolvedImage
+    } else if !symbolName.isEmpty {
       return UIImage(systemName: symbolName, withConfiguration: config)
     } else if !customImageName.isEmpty {
       let bundle: Bundle?
@@ -176,7 +208,9 @@ final class TabItemContentView: UIView {
     if let icon {
       let imageSize = icon.size
       let imageX = (bounds.width - imageSize.width) / 2
-      let imageY = (Constants.iconViewSize - imageSize.height) / 2 - contentNudgeUp
+      let imageY = showsTitle
+        ? (Constants.iconViewSize - imageSize.height) / 2 - contentNudgeUp
+        : (bounds.height - imageSize.height) / 2
       tintColor.setFill()
       icon.withRenderingMode(.alwaysTemplate).draw(
         in: CGRect(x: imageX, y: imageY, width: imageSize.width, height: imageSize.height)
@@ -188,7 +222,7 @@ final class TabItemContentView: UIView {
       x: textX,
       y: Constants.iconViewSize - contentNudgeUp + iconTextGap
     )
-    (title as NSString).draw(at: textPoint, withAttributes: textAttributes)
+    if showsTitle { (title as NSString).draw(at: textPoint, withAttributes: textAttributes) }
   }
 
   private func drawInline(
@@ -198,7 +232,7 @@ final class TabItemContentView: UIView {
     tintColor: UIColor
   ) {
     let hasIcon = icon != nil
-    let hasTitle = showsInlineTitle && !title.isEmpty
+    let hasTitle = showsTitle && showsInlineTitle && !title.isEmpty
     let iconWidth = hasIcon ? Constants.iconViewSize : 0
     let spacing = hasIcon && hasTitle ? Constants.inlineIconTitleSpacing : 0
     let visibleTextWidth = hasTitle ? textSize.width : 0

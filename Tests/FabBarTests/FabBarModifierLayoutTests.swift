@@ -93,7 +93,8 @@ final class FabBarModifierLayoutTests: XCTestCase {
       .fabBar(
         selection: Binding(get: { selection }, set: { selection = $0 }),
         tabs: makeTabs(),
-        action: makeAction()
+        action: makeAction(),
+        placement: .bottom
       )
       .environment(\.horizontalSizeClass, .regular)
     let (window, controller) = host(rootView, size: CGSize(width: 1_024, height: 768))
@@ -125,7 +126,8 @@ final class FabBarModifierLayoutTests: XCTestCase {
             action: {}
           )
         ],
-        density: .compact
+        density: .compact,
+        placement: .bottom
       )
       .environment(\.horizontalSizeClass, .compact)
     let (window, controller) = host(rootView, size: CGSize(width: 390, height: 844))
@@ -163,7 +165,8 @@ final class FabBarModifierLayoutTests: XCTestCase {
         selection: Binding(get: { selection }, set: { selection = $0 }),
         tabs: makeTabs(),
         action: makeAction(),
-        density: .compact
+        density: .compact,
+        placement: .bottom
       )
       .environment(\.horizontalSizeClass, .compact)
     let (window, controller) = host(rootView, size: CGSize(width: 240, height: 240))
@@ -185,6 +188,18 @@ final class FabBarModifierLayoutTests: XCTestCase {
         bar.segmentedControl.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame),
         "A compact tab overflowed the locally available segmented control"
       )
+    }
+
+    for width in [CGFloat(220), 240] {
+      window.frame.size.width = width
+      controller.view.frame = window.bounds
+      window.layoutIfNeeded()
+      controller.view.layoutIfNeeded()
+      XCTAssertTrue(waitUntil { bar.isCompactContentCollapsed })
+      for frame in bar.segmentedControl.segmentFramesInControlCoordinates() {
+        XCTAssertTrue(bar.segmentedControl.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame),
+          "Consecutive narrow proposals must resize each collapsed native segment")
+      }
     }
 
     window.frame.size.width = 390
@@ -314,7 +329,8 @@ private struct MutableTabPresentationHost: View {
         selection: $selection,
         tabs: tabs,
         action: FabBarAction(systemImage: "plus", accessibilityLabel: "Primary", action: {}),
-        density: .compact
+        density: .compact,
+        placement: .bottom
       )
       .environment(\.horizontalSizeClass, .compact)
   }

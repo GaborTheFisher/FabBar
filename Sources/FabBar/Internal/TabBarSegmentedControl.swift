@@ -24,6 +24,10 @@ import UIKit
 final class TabBarSegmentedControl: UISegmentedControl {
   /// The segment index before touch began, used to restore on cancel and detect actual changes.
   private var originalIndex: Int?
+  private var isDeferringNativeActions = false
+  private var ignoresRemainingTouchSequence = false
+  private var accessibilitySegments: [TabBarSegmentAccessibilityElement] = []
+  private var accessibilitySegmentIdentities: [String] = []
 
   /// Tag used to identify injected content views within segments.
   private static let injectedViewTag = 7_777
@@ -66,11 +70,85 @@ final class TabBarSegmentedControl: UISegmentedControl {
   /// Called when user taps the already-selected segment.
   var onReselect: ((Int) -> Void)?
 
+  /// Routes assistive activation through the same logical selection owner as
+  /// the vertical renderer, without adding a view over UIKit's glass control.
+  var onAccessibilityActivate: ((Int) -> Void)?
+
+  /// Stable identifiers belong to logical segment values, including in RTL.
+  var segmentAccessibilityIdentifiers: [String?] = [] {
+    didSet {
+      updateSegmentAccessibility()
+      setNeedsLayout()
+    }
+  }
+
+  /// The wrapper keeps this control mounted across axis changes. A hidden
+  /// horizontal renderer must not keep its display link or a pending gesture.
+  var isRendererActive = true {
+    didSet {
+      guard oldValue != isRendererActive else { return }
+      if isRendererActive {
+        setNeedsLayout()
+        wakeAccentMasks()
+      } else {
+        cancelInteraction()
+        stopDisplayLink()
+      }
+    }
+  }
+
+  override var isAccessibilityElement: Bool {
+    get { false }
+    set {}
+  }
+
+  override func accessibilityElementCount() -> Int {
+    accessibilitySegments.count
+  }
+
+  override func accessibilityElement(at index: Int) -> Any? {
+    accessibilitySegments.indices.contains(index) ? accessibilitySegments[index] : nil
+  }
+
+  override func index(ofAccessibilityElement element: Any) -> Int {
+    guard let segment = element as? TabBarSegmentAccessibilityElement else { return NSNotFound }
+    return accessibilitySegments.firstIndex { $0 === segment } ?? NSNotFound
+  }
+
+  override var selectedSegmentIndex: Int {
+    didSet {
+      if oldValue != selectedSegmentIndex {
+        updateSegmentAccessibility()
+        wakeAccentMasks()
+      }
+    }
+  }
+
+  /// Cancel a finger-down preview without committing navigation when the
+  /// surrounding layout or descriptor identity changes.
+  func cancelInteraction() {
+    let pendingIndex = originalIndex
+    if originalIndex != nil || isDeferringNativeActions {
+      ignoresRemainingTouchSequence = true
+    }
+    originalIndex = nil
+    isDeferringNativeActions = true
+    cancelTracking(with: nil)
+    if let pendingIndex { selectedSegmentIndex = pendingIndex }
+    isDeferringNativeActions = false
+    wakeAccentMasks()
+  }
+
   override init(items: [Any]?) {
     super.init(items: items)
-    // Note: .tabBar trait doesn't affect VoiceOver announcements on UISegmentedControl,
-    // but it's set here for semantic correctness since this control functions as a tab bar.
-    accessibilityTraits = .tabBar
+    // The outer wrapper supplies tab-bar grouping. Keep the native control
+    // a container so its individual segments retain their accessibility.
+    isAccessibilityElement = false
+    registerForTraitChanges([UITraitLayoutDirection.self, UITraitPreferredContentSizeCategory.self]) {
+      (view: TabBarSegmentedControl, _: UITraitCollection) in
+      view.cancelInteraction()
+      view.setNeedsLayout()
+    }
   }
 
   @available(*, unavailable)
@@ -80,17 +158,17 @@ final class TabBarSegmentedControl: UISegmentedControl {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    displayLink?.isPaused = false
-    stableFrameCount = 0
+    wakeAccentMasks()
     hideSegmentBackgrounds()
     hideDefaultLabels()
+    updateSegmentAccessibility()
     injectContentViewsIfNeeded()
     updateContentViewColors()
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window != nil {
+    if window != nil && isRendererActive {
       startDisplayLink()
     } else {
       stopDisplayLink()
@@ -110,6 +188,11 @@ final class TabBarSegmentedControl: UISegmentedControl {
   /// masked to the glass indicator position.
   func configureContentViews(_ baseViews: [TabItemContentView], accentViews: [TabItemContentView]) {
     cachedIndicatorView = nil
+    // This entry point accompanies a logical segment rebuild. Ordinary title,
+    // image, tint, geometry and axis changes retain their accessibility objects.
+    accessibilitySegments = []
+    accessibilitySegmentIdentities = []
+    accessibilityElements = []
 
     // Remove previously injected views from segment subtrees.
     // Uses tag-based lookup so this works even if segments were rebuilt
@@ -120,25 +203,19 @@ final class TabBarSegmentedControl: UISegmentedControl {
     }
     contentViews = baseViews
     accentContentViews = accentViews
-    for contentView in contentViews {
-      contentView.setShowsInlineTitle(inlineTitlesVisible)
-    }
-    for accentView in accentContentViews {
-      accentView.setShowsInlineTitle(inlineTitlesVisible)
+    for view in contentViews + accentContentViews {
+      view.setShowsInlineTitle(inlineTitlesVisible)
     }
     setNeedsLayout()
   }
 
-  /// Collapses or restores all compact labels as one coarse presentation so
-  /// a constrained bar never mixes labeled and icon-only tabs.
   func setInlineTitlesVisible(_ areVisible: Bool) {
+    guard inlineTitlesVisible != areVisible else { return }
     inlineTitlesVisible = areVisible
-    for contentView in contentViews {
-      contentView.setShowsInlineTitle(areVisible)
+    for view in contentViews + accentContentViews {
+      view.setShowsInlineTitle(areVisible)
     }
-    for accentView in accentContentViews {
-      accentView.setShowsInlineTitle(areVisible)
-    }
+    setNeedsLayout()
   }
 
   var areInlineTitlesVisible: Bool {
@@ -149,53 +226,73 @@ final class TabBarSegmentedControl: UISegmentedControl {
   private func injectContentViewsIfNeeded() {
     let segmentViews = findSegmentViews()
     guard segmentViews.count == contentViews.count,
-          segmentViews.count == accentContentViews.count else { return }
+          segmentViews.count == accentContentViews.count,
+          bounds.width > 0, bounds.height > 0,
+          segmentViews.allSatisfy({ $0.bounds.width > 0 && $0.bounds.height > 0 }) else { return }
+
+    // UIKit can first materialize its segments with unresolved positions and
+    // later reorder them during layout or RTL changes. Reconcile identity,
+    // not just the presence of a tagged child, before attaching this layout.
+    for (index, segmentView) in segmentViews.enumerated() {
+      if let existing = segmentView.viewWithTag(Self.injectedViewTag), existing !== contentViews[index] {
+        existing.removeFromSuperview()
+      }
+      if let existing = segmentView.viewWithTag(Self.accentViewTag), existing !== accentContentViews[index] {
+        existing.removeFromSuperview()
+      }
+    }
 
     for (index, segmentView) in segmentViews.enumerated() {
-      // Base (inactive) content view
-      if segmentView.viewWithTag(Self.injectedViewTag) == nil {
-        let contentView = contentViews[index]
+      if segmentAccessibilityIdentifiers.indices.contains(index) {
+        segmentView.accessibilityIdentifier = segmentAccessibilityIdentifiers[index]
+      }
+      let contentView = contentViews[index]
+      if contentView.superview !== segmentView {
         contentView.tag = Self.injectedViewTag
         contentView.translatesAutoresizingMaskIntoConstraints = false
         segmentView.addSubview(contentView)
-
-        let idealWidth = contentView.widthAnchor.constraint(
-          equalToConstant: contentView.intrinsicContentSize.width
-        )
-        idealWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
           contentView.centerXAnchor.constraint(equalTo: segmentView.centerXAnchor),
           contentView.centerYAnchor.constraint(equalTo: segmentView.centerYAnchor),
-          idealWidth,
-          contentView.widthAnchor.constraint(lessThanOrEqualTo: segmentView.widthAnchor),
-          contentView.heightAnchor.constraint(equalToConstant: contentView.intrinsicContentSize.height),
         ])
       }
+      updateContentSizeConstraints(for: contentView, inside: segmentView)
 
-      // Accent (active) content view on top, masked to the glass indicator
-      if segmentView.viewWithTag(Self.accentViewTag) == nil {
-        let accentView = accentContentViews[index]
+      let accentView = accentContentViews[index]
+      if accentView.superview !== segmentView {
         accentView.tag = Self.accentViewTag
         accentView.translatesAutoresizingMaskIntoConstraints = false
         segmentView.addSubview(accentView)
-
-        let idealWidth = accentView.widthAnchor.constraint(
-          equalToConstant: accentView.intrinsicContentSize.width
-        )
-        idealWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
           accentView.centerXAnchor.constraint(equalTo: segmentView.centerXAnchor),
           accentView.centerYAnchor.constraint(equalTo: segmentView.centerYAnchor),
-          idealWidth,
-          accentView.widthAnchor.constraint(lessThanOrEqualTo: segmentView.widthAnchor),
-          accentView.heightAnchor.constraint(equalToConstant: accentView.intrinsicContentSize.height),
         ])
-
-        // Start fully hidden; display link will reveal via mask
         let maskLayer = CAShapeLayer()
         maskLayer.path = UIBezierPath(rect: .zero).cgPath
         accentView.layer.mask = maskLayer
       }
+      updateContentSizeConstraints(for: accentView, inside: segmentView)
+    }
+  }
+
+  /// Text, image and label-fit changes reuse the injected views. Refresh the
+  /// original explicit size constraints instead of leaving their first size.
+  private func updateContentSizeConstraints(for view: TabItemContentView, inside segment: UIView) {
+    let size = view.intrinsicContentSize
+    let width = view.constraints.first { $0.identifier == "FabBar.content.width" }
+      ?? view.widthAnchor.constraint(equalToConstant: size.width)
+    let height = view.constraints.first { $0.identifier == "FabBar.content.height" }
+      ?? view.heightAnchor.constraint(equalToConstant: size.height)
+    width.identifier = "FabBar.content.width"
+    height.identifier = "FabBar.content.height"
+    width.constant = size.width
+    width.priority = .defaultHigh
+    height.constant = size.height
+    NSLayoutConstraint.activate([width, height])
+    if !segment.constraints.contains(where: { $0.identifier == "FabBar.content.maximumWidth" && $0.firstItem === view }) {
+      let maximumWidth = view.widthAnchor.constraint(lessThanOrEqualTo: segment.widthAnchor)
+      maximumWidth.identifier = "FabBar.content.maximumWidth"
+      maximumWidth.isActive = true
     }
   }
 
@@ -219,13 +316,67 @@ final class TabBarSegmentedControl: UISegmentedControl {
   private func findSegmentViews() -> [UIView] {
     var segments: [UIView] = []
     findSegments(in: self, results: &segments)
-    return segments.sorted {
-      convert($0.bounds, from: $0).minX < convert($1.bounds, from: $1).minX
+    let physicalOrder = segments.sorted {
+      $0.convert($0.bounds, to: self).midX < $1.convert($1.bounds, to: self).midX
     }
+    return effectiveUserInterfaceLayoutDirection == .rightToLeft
+      ? Array(physicalOrder.reversed()) : physicalOrder
   }
 
   func segmentFramesInControlCoordinates() -> [CGRect] {
-    findSegmentViews().map { convert($0.bounds, from: $0) }
+    findSegmentViews().map { $0.convert($0.bounds, to: self) }
+  }
+
+  /// UIKit's segment views stay the hit targets and rendering owners. The
+  /// nonvisual elements supply supported activation and stable logical focus;
+  /// their frames always come from the corresponding real native segment.
+  private func updateSegmentAccessibility() {
+    let segments = findSegmentViews()
+    guard segments.count == numberOfSegments else { return }
+    let identities = segments.indices.map { index in
+      (segmentAccessibilityIdentifiers.indices.contains(index)
+        ? segmentAccessibilityIdentifiers[index] : nil) ?? "FabBar.tab.\(index)"
+    }
+    if identities != accessibilitySegmentIdentities || accessibilitySegments.count != segments.count {
+      accessibilitySegmentIdentities = identities
+      accessibilitySegments = segments.indices.map {
+        TabBarSegmentAccessibilityElement(control: self, segmentIndex: $0)
+      }
+    }
+    for (index, segment) in segments.enumerated() {
+      let label = titleForSegment(at: index)
+      let traits: UIAccessibilityTraits = index == selectedSegmentIndex ? [.button, .selected] : [.button]
+      // Keep native metadata for UIKit's large-content popover and diagnostics;
+      // expose only the activatable element to avoid duplicate announcements.
+      segment.isAccessibilityElement = false
+      segment.accessibilityElementsHidden = false
+      segment.accessibilityLabel = label
+      segment.accessibilityValue = nil
+      segment.accessibilityIdentifier = identities[index]
+      segment.accessibilityTraits = traits
+      let element = accessibilitySegments[index]
+      element.segmentView = segment
+      element.accessibilityLabel = label
+      element.accessibilityValue = nil
+      element.accessibilityIdentifier = identities[index]
+      element.accessibilityTraits = traits
+    }
+    accessibilityElements = accessibilitySegments
+  }
+
+  fileprivate func activateAccessibilitySegment(at index: Int) -> Bool {
+    guard isRendererActive, !isHidden, !accessibilityElementsHidden, isEnabled,
+          (0..<numberOfSegments).contains(index), isEnabledForSegment(at: index) else { return false }
+    cancelInteraction()
+    if let onAccessibilityActivate {
+      onAccessibilityActivate(index)
+    } else if selectedSegmentIndex == index {
+      onReselect?(index)
+    } else {
+      selectedSegmentIndex = index
+      sendActions(for: .valueChanged)
+    }
+    return true
   }
 
   private func findSegments(in view: UIView, results: inout [UIView]) {
@@ -272,6 +423,13 @@ final class TabBarSegmentedControl: UISegmentedControl {
   }
 
   // MARK: - Indicator Tracking & Accent Masking
+
+  private func wakeAccentMasks() {
+    guard isRendererActive, window != nil else { return }
+    startDisplayLink()
+    displayLink?.isPaused = false
+    stableFrameCount = 0
+  }
 
   private func startDisplayLink() {
     guard displayLink == nil else { return }
@@ -346,8 +504,7 @@ final class TabBarSegmentedControl: UISegmentedControl {
     }
     let segments = findSegmentViews()
     if selectedSegmentIndex >= 0, selectedSegmentIndex < segments.count {
-      let segment = segments[selectedSegmentIndex]
-      return convert(segment.bounds, from: segment)
+      return segments[selectedSegmentIndex].convert(segments[selectedSegmentIndex].bounds, to: self)
     }
     return .zero
   }
@@ -427,20 +584,23 @@ final class TabBarSegmentedControl: UISegmentedControl {
   func segmentIndex(at point: CGPoint) -> Int {
     guard numberOfSegments > 0 else { return 0 }
     let frames = segmentFramesInControlCoordinates()
-    guard frames.count == numberOfSegments else {
-      let segmentWidth = bounds.width / CGFloat(numberOfSegments)
-      return min(max(Int(point.x / segmentWidth), 0), numberOfSegments - 1)
+    if frames.count == numberOfSegments {
+      // Inline segments have different widths. A nearest-center-only test
+      // switches a wide segment too early near its narrow neighbor.
+      if let index = frames.firstIndex(where: { point.x >= $0.minX && point.x <= $0.maxX }) {
+        return index
+      }
+      if let nearest = frames.indices.min(by: {
+        abs(frames[$0].midX - point.x) < abs(frames[$1].midX - point.x)
+      }) {
+        return nearest
+      }
     }
-
-    if let index = frames.firstIndex(where: { point.x >= $0.minX && point.x <= $0.maxX }) {
-      return index
-    }
-
-    // UIKit normally sends touches inside the control, but a nearest-centre
-    // fallback keeps tracking stable at the extreme edges during a drag.
-    return frames.enumerated().min {
-      abs($0.element.midX - point.x) < abs($1.element.midX - point.x)
-    }?.offset ?? 0
+    guard bounds.width > 0 else { return 0 }
+    let segmentWidth = bounds.width / CGFloat(numberOfSegments)
+    let physicalIndex = min(max(Int(point.x / segmentWidth), 0), numberOfSegments - 1)
+    return effectiveUserInterfaceLayoutDirection == .rightToLeft
+      ? numberOfSegments - 1 - physicalIndex : physicalIndex
   }
 
   /// Whether to override `selectedSegmentIndex` on touch down for immediate glass indicator movement.
@@ -449,67 +609,110 @@ final class TabBarSegmentedControl: UISegmentedControl {
     !traitCollection.preferredContentSizeCategory.isAccessibilityCategory
   }
 
+  /// Native target dispatch is deferred only while the immediate-lens touch
+  /// preview is active. The final native selection emits one value change.
+  /// Accessibility and ordinary programmatic control events retain UIKit's path.
+  override func sendAction(_ action: Selector, to target: Any?, for event: UIEvent?) {
+    guard !isDeferringNativeActions else { return }
+    super.sendAction(action, to: target, for: event)
+  }
+
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-    guard let touch = touches.first else {
+    ignoresRemainingTouchSequence = false
+    guard isRendererActive, let touch = touches.first else {
       super.touchesBegan(touches, with: event)
       return
     }
-
-    let newIndex = segmentIndex(at: touch.location(in: self))
-
-    displayLink?.isPaused = false
-    stableFrameCount = 0
-
+    wakeAccentMasks()
     if shouldMoveIndicatorOnTouchDown {
       originalIndex = selectedSegmentIndex
-      selectedSegmentIndex = newIndex
+      isDeferringNativeActions = true
+      selectedSegmentIndex = segmentIndex(at: touch.location(in: self))
     }
-
     super.touchesBegan(touches, with: event)
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    guard !ignoresRemainingTouchSequence else { return }
     guard let touch = touches.first else {
       super.touchesMoved(touches, with: event)
       return
     }
-
-    let newIndex = segmentIndex(at: touch.location(in: self))
-
-    displayLink?.isPaused = false
-    stableFrameCount = 0
-
-    if shouldMoveIndicatorOnTouchDown && selectedSegmentIndex != newIndex {
-      selectedSegmentIndex = newIndex
+    wakeAccentMasks()
+    if shouldMoveIndicatorOnTouchDown, originalIndex != nil {
+      selectedSegmentIndex = segmentIndex(at: touch.location(in: self))
     }
-
     super.touchesMoved(touches, with: event)
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-    displayLink?.isPaused = false
-    stableFrameCount = 0
-
-    if shouldMoveIndicatorOnTouchDown, let originalIndex {
-      if selectedSegmentIndex != originalIndex {
-        sendActions(for: .valueChanged)
-      } else {
-        onReselect?(selectedSegmentIndex)
-      }
+    guard !ignoresRemainingTouchSequence else {
+      ignoresRemainingTouchSequence = false
+      return
     }
-    originalIndex = nil
+    wakeAccentMasks()
+    guard let startingIndex = originalIndex, isDeferringNativeActions else {
+      super.touchesEnded(touches, with: event)
+      return
+    }
+    // Let UIKit finish its lens interaction while suppressing its target
+    // callbacks, then commit the resulting value exactly once.
     super.touchesEnded(touches, with: event)
+    originalIndex = nil
+    isDeferringNativeActions = false
+    if selectedSegmentIndex != startingIndex {
+      sendActions(for: .valueChanged)
+    } else {
+      onReselect?(selectedSegmentIndex)
+    }
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-    displayLink?.isPaused = false
-    stableFrameCount = 0
-
-    if shouldMoveIndicatorOnTouchDown, let originalIndex {
-      selectedSegmentIndex = originalIndex
-    }
-    originalIndex = nil
+    wakeAccentMasks()
+    let startingIndex = originalIndex
     super.touchesCancelled(touches, with: event)
+    if let startingIndex { selectedSegmentIndex = startingIndex }
+    originalIndex = nil
+    isDeferringNativeActions = false
+    ignoresRemainingTouchSequence = false
+  }
+
+}
+
+/// Accessibility-only representation of a real UIKit segment. It draws
+/// nothing and leaves the native control's touch handling and glass untouched.
+@available(iOS 26.0, *)
+@MainActor
+private final class TabBarSegmentAccessibilityElement: UIAccessibilityElement {
+  private weak var control: TabBarSegmentedControl?
+  weak var segmentView: UIView?
+  private let segmentIndex: Int
+
+  init(control: TabBarSegmentedControl, segmentIndex: Int) {
+    self.control = control
+    self.segmentIndex = segmentIndex
+    super.init(accessibilityContainer: control)
+    isAccessibilityElement = true
+  }
+
+  override var accessibilityFrame: CGRect {
+    get {
+      guard let segmentView else { return .zero }
+      return UIAccessibility.convertToScreenCoordinates(segmentView.bounds, in: segmentView)
+    }
+    set {}
+  }
+
+  override var accessibilityFrameInContainerSpace: CGRect {
+    get {
+      guard let control, let segmentView else { return .zero }
+      return segmentView.convert(segmentView.bounds, to: control)
+    }
+    set {}
+  }
+
+  override func accessibilityActivate() -> Bool {
+    control?.activateAccessibilitySegment(at: segmentIndex) ?? false
   }
 }
 

@@ -31,17 +31,22 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
   /// Useful for scroll-to-top or similar behaviors.
   public let onReselect: (() -> Void)?
 
+  /// Stable identifier for UI automation and accessibility inspection.
+  public let accessibilityIdentifier: String?
+
   /// Creates a tab with an SF Symbol icon.
   ///
   /// - Parameters:
   ///   - value: The tab identifier.
   ///   - title: The localized title displayed below the icon.
   ///   - systemImage: The SF Symbol name for the icon.
+  ///   - accessibilityIdentifier: Optional stable identifier for accessibility inspection and UI tests.
   ///   - onReselect: Called when the user taps this tab while it's already selected.
   public init(
     value: Value,
     title: LocalizedStringKey,
     systemImage: String,
+    accessibilityIdentifier: String? = nil,
     onReselect: (() -> Void)? = nil
   ) {
     self.value = value
@@ -51,6 +56,7 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
     self.image = nil
     self.imageBundle = nil
     self.onReselect = onReselect
+    self.accessibilityIdentifier = accessibilityIdentifier
   }
 
   /// Creates a tab with a custom image from a bundle.
@@ -60,12 +66,14 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
   ///   - title: The localized title displayed below the icon.
   ///   - image: The custom image name.
   ///   - imageBundle: The bundle containing the image. Defaults to `.main`.
+  ///   - accessibilityIdentifier: Optional stable identifier for accessibility inspection and UI tests.
   ///   - onReselect: Called when the user taps this tab while it's already selected.
   public init(
     value: Value,
     title: LocalizedStringKey,
     image: String,
     imageBundle: Bundle? = nil,
+    accessibilityIdentifier: String? = nil,
     onReselect: (() -> Void)? = nil
   ) {
     self.value = value
@@ -75,6 +83,7 @@ public struct FabBarTab<Value: Hashable>: Identifiable {
     self.image = image
     self.imageBundle = imageBundle ?? .main
     self.onReselect = onReselect
+    self.accessibilityIdentifier = accessibilityIdentifier
   }
 }
 

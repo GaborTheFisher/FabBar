@@ -17,6 +17,14 @@ enum Constants {
     /// heights, capsule corners) derives from the framed height.
     static let compactBarHeight: CGFloat = 52
 
+    /// Native side-tab reference: 50pt surface, 50pt item pitch and 6pt ends.
+    /// These metrics are independent of horizontal label density.
+    static let verticalBarWidth: CGFloat = 50
+    static let verticalTabHeight: CGFloat = 50
+    static let verticalContentPadding: CGFloat = 6
+    static let verticalSelectionHeight: CGFloat = 58
+    static let verticalTabIconPointSize: CGFloat = 20
+
     /// Maximum width of the glass bar on regular-width layouts. Keeping the
     /// bar visible preserves tab navigation while preventing its controls from
     /// stretching across an entire iPad or resizable window.
@@ -29,6 +37,9 @@ enum Constants {
 
     /// Horizontal padding for FabBar positioning.
     static let horizontalPadding: CGFloat = 21
+
+    /// Side rails sit inside the system's reserved edge strip when available.
+    static let sidePadding: CGFloat = 24
 
     /// Bottom padding for FabBar positioning.
     /// Provides clearance above the home indicator.

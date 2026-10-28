@@ -148,26 +148,20 @@ final class GlassTabBarViewTests: XCTestCase {
   }
 
   func testSwitchingToCompactDensityCollapsesAndPublishesContentWidth() {
-    let control = TabBarSegmentedControl(
-      items: [
-        UIImage(systemName: "circle")!,
-        UIImage(systemName: "square")!,
-        UIImage(systemName: "triangle")!,
-      ]
-    )
-    let widths: [CGFloat] = [72, 108, 84]
-    for (index, width) in widths.enumerated() {
-      control.setWidth(width, forSegmentAt: index)
-    }
+    let control = FabBarTabControl()
+    control.setTabs([
+      FabBarTabDescriptor(title: "First", image: UIImage(systemName: "circle"), accessibilityIdentifier: "first"),
+      FabBarTabDescriptor(title: "Longer second", image: UIImage(systemName: "square"), accessibilityIdentifier: "second"),
+      FabBarTabDescriptor(title: "Third", image: UIImage(systemName: "triangle"), accessibilityIdentifier: "third"),
+    ])
     let subject = GlassTabBarView(
       segmentedControl: control,
-      tabCount: widths.count,
+      tabCount: control.numberOfSegments,
       action: FabBarAction(systemImage: "plus", accessibilityLabel: "Primary", action: {}),
       secondaryActions: [
         FabBarAction(systemImage: "square.and.pencil", accessibilityLabel: "Secondary", action: {})
       ],
-      isSecondaryActionMenuEnabled: true,
-      density: .regular
+      isSecondaryActionMenuEnabled: true
     )
     let window = host(subject)
     subject.fabButton.sendActions(for: .touchUpInside)
@@ -176,6 +170,9 @@ final class GlassTabBarViewTests: XCTestCase {
     subject.updateDensity(.compact)
 
     XCTAssertFalse(subject.isExpanded)
+    let widths = control.preferredCompactSegmentWidths
+    XCTAssertEqual(widths.count, 3)
+    XCTAssertGreaterThan(widths[1], widths[0])
     XCTAssertEqual(
       subject.intrinsicContentSize.width,
       widths.reduce(0, +)
@@ -208,7 +205,9 @@ final class GlassTabBarViewTests: XCTestCase {
     XCTAssertEqual(frames.count, 3)
     XCTAssertGreaterThan(frames[1].width, frames[0].width)
     for (index, frame) in frames.enumerated() {
-      XCTAssertEqual(control.segmentIndex(at: CGPoint(x: frame.midX, y: frame.midY)), index)
+      for x in [frame.minX + 1, frame.midX, frame.maxX - 1] {
+        XCTAssertEqual(control.segmentIndex(at: CGPoint(x: x, y: frame.midY)), index)
+      }
     }
     withExtendedLifetime(window) {}
   }
@@ -218,9 +217,9 @@ final class GlassTabBarViewTests: XCTestCase {
     isSecondaryActionMenuEnabled: Bool,
     primaryAction: @escaping () -> Void
   ) -> GlassTabBarView {
-    let control = TabBarSegmentedControl(
-      items: [UIImage(systemName: "circle")!]
-    )
+    let control = FabBarTabControl()
+    control.setTabs([FabBarTabDescriptor(title: "Collection",
+      image: UIImage(systemName: "circle"), accessibilityIdentifier: "collection")])
     return GlassTabBarView(
       segmentedControl: control,
       tabCount: 1,
