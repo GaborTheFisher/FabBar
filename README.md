@@ -43,13 +43,19 @@ for the host's qualification responsibilities.
 
 ## Installation
 
-Add FabBar as a Swift Package dependency:
+The adaptive implementation is on this fork's `main` branch. Until a versioned
+release includes it, pin the verified merge revision when adopting Duo support:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ryanashcraft/FabBar.git", from: "1.0.0")
+    .package(url: "https://github.com/GaborTheFisher/FabBar.git",
+             revision: "a2e614e07cb623d1cee258176e00d9abd54d350b")
 ]
 ```
+
+The earlier upstream version requirement does not identify the adaptive work.
+Changing a branch-based dependency still requires reviewing its resolved revision
+and requalifying the consuming app.
 
 ## Usage
 
@@ -300,6 +306,33 @@ presets; horizontal placement retains the original 62pt/52pt segmented control.
 Hosts can use `density.barThickness(for: resolvedPlacement)` when reserving space.
 Automatic placement follows `toolbarVerticalEdge`: side bars on Duo's outer
 display and inner landscape, horizontal segmented navigation in inner portrait.
+
+## Duo support progress
+
+As of 28 October 2026, the adaptive work is merged into `main` at
+`a2e614e07cb623d1cee258176e00d9abd54d350b`. This records source integration,
+not a new tagged release or a consuming app's release approval.
+
+- Horizontal navigation retains `UISegmentedControl` and its native glass
+  selection. Regular density stacks labels; compact density uses inline,
+  content-hugging labels and restores them after constrained layouts.
+- Vertical navigation uses a neutral glass selection lens with accent icons.
+  It follows the preferred system edge, uses the reserved side strip, and keeps
+  the primary command separate from navigation and destination overflow.
+- The complete vertical bar needs 220pt for three destinations or 270pt for
+  four, in either density. Shorter vertical proposals use the 108pt layout
+  containing the destination chooser and primary action.
+- Placement and density changes retain selection, reselection, action callbacks
+  and hosted content. Obsolete bars cannot resize reparented primary content;
+  button layout uses bounds and center while the expanded chooser rotates it.
+
+The merged package passed **63/63 tests on iOS 26 and 63/63 on Duo 27.1** with
+Xcode 27.1, and the example simulator build passed. This includes compact/rail/
+regular round trips, RTL segment-edge routing and accessibility activation,
+reserved-strip clearances, overflow, menu cleanup and primary-content centering.
+The consuming app still needs its own tests against this exact revision and the
+live display, Split View, accessibility and state-continuity checks described
+above. Package simulator results do not certify physical Duo behavior.
 
 ## License
 
