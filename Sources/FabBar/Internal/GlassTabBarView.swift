@@ -23,6 +23,7 @@ final class GlassTabBarView: UIView {
   private var backdropView: UIView?
   private var menuScrollView: UIScrollView?
   private(set) var isExpanded = false
+  /// Logical action viewport before the scroll canvas's render gutter.
   private(set) var secondaryMenuFrame: CGRect = .zero
   var secondaryButtons: [UIButton] { secondaryItems.map(\.button) }
 
@@ -375,11 +376,14 @@ final class GlassTabBarView: UIView {
   private func expand() {
     guard !isExpanded, !secondaryItems.isEmpty, let window else { return }
     layoutIfNeeded()
-    var safe = window.safeAreaLayoutGuide.layoutFrame.insetBy(dx: 12, dy: 12)
+    // Keep the action layout inset while giving glass and pressed effects
+    // room to render inside the scroll view's clipping boundary.
+    let renderInset: CGFloat = 12
+    var safe = window.safeAreaLayoutGuide.layoutFrame.insetBy(dx: renderInset, dy: renderInset)
     let keyboard = window.keyboardLayoutGuide.layoutFrame
     if keyboard.height > 0, keyboard.minY < safe.maxY,
        keyboard.maxX > safe.minX, keyboard.minX < safe.maxX {
-      safe.size.height = max(0, min(safe.maxY, keyboard.minY - 12) - safe.minY)
+      safe.size.height = max(0, min(safe.maxY, keyboard.minY - renderInset) - safe.minY)
     }
     guard safe.width >= 44, safe.height >= 44 else { return }
     let fab = fabGlassView.convert(fabGlassView.bounds, to: window)
@@ -416,7 +420,10 @@ final class GlassTabBarView: UIView {
     backdrop.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backdropTapped)))
     window.addSubview(backdrop)
     backdropView = backdrop
-    let scroll = FabBarSecondaryMenuScrollView(frame: secondaryMenuFrame)
+    // Inflate only the canvas. Matching content offsets preserve each
+    // button's window position, alignment and distance from the primary action.
+    let scroll = FabBarSecondaryMenuScrollView(
+      frame: secondaryMenuFrame.insetBy(dx: -renderInset, dy: -renderInset))
     scroll.onEscape = { [weak self] in self?.collapse(animated: true) }
     scroll.backgroundColor = .clear
     scroll.contentInsetAdjustmentBehavior = .never
@@ -427,17 +434,17 @@ final class GlassTabBarView: UIView {
     scroll.addInteraction(UILargeContentViewerInteraction())
     window.addSubview(scroll)
     menuScrollView = scroll
-    var top: CGFloat = 0
+    var top = renderInset
     for (item, size) in zip(secondaryItems, sizes) {
       scroll.addSubview(item.glassView)
-      item.glassView.frame = CGRect(x: width - size.width, y: top, width: size.width, height: size.height)
+      item.glassView.frame = CGRect(x: renderInset + width - size.width, y: top, width: size.width, height: size.height)
       item.button.frame = item.glassView.bounds
       item.customView?.frame = item.button.bounds.insetBy(dx: 12, dy: 8)
       item.glassView.isHidden = false
       item.glassView.isUserInteractionEnabled = true
       top += size.height + 12
     }
-    scroll.contentSize = CGSize(width: width, height: contentHeight)
+    scroll.contentSize = CGSize(width: width + renderInset * 2, height: contentHeight + renderInset * 2)
     let duration = UIAccessibility.isReduceMotionEnabled ? 0 : 0.2
     scroll.alpha = 0
     UIView.animate(withDuration: duration, delay: 0,
