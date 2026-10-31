@@ -507,13 +507,20 @@ final class GlassTabBarAdaptiveTests: XCTestCase {
         let menu = try XCTUnwrap(window.subviews.first {
           $0.accessibilityIdentifier == "FabBar.secondaryMenu"
         } as? UIScrollView)
-        let safe = window.safeAreaLayoutGuide.layoutFrame.insetBy(dx: 12, dy: 12)
-        XCTAssertTrue(safe.contains(menu.frame))
+        let windowSafe = window.safeAreaLayoutGuide.layoutFrame
+        let safe = windowSafe.insetBy(dx: 12, dy: 12)
+        XCTAssertTrue(windowSafe.contains(menu.frame))
         let fab = subject.fabGlassView.convert(subject.fabGlassView.bounds, to: window)
         let availableWidth = placement.isVertical
           ? max(fab.minX - safe.minX - 12, safe.maxX - fab.maxX - 12) : safe.width
         for (index, button) in subject.secondaryButtons.enumerated() {
           let context = "\(placement), \(windowSize), \(category.rawValue), \(labels[index])"
+          let buttonFrame = button.convert(button.bounds, to: window)
+          XCTAssertGreaterThanOrEqual(buttonFrame.minX, safe.minX - 1, context)
+          XCTAssertLessThanOrEqual(buttonFrame.maxX, safe.maxX + 1, context)
+          if menu.contentSize.height <= menu.bounds.height + 1 {
+            XCTAssertTrue(safe.insetBy(dx: -1, dy: -1).contains(buttonFrame), context)
+          }
           XCTAssertLessThanOrEqual(button.bounds.width, availableWidth + 1, context)
           XCTAssertGreaterThanOrEqual(button.bounds.height, 44, context)
           if category.isAccessibilityCategory {
