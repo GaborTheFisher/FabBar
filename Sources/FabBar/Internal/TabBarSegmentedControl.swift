@@ -22,7 +22,7 @@ import UIKit
 /// 4. **Reselection callback**: Notifies when user taps an already-selected segment.
 @available(iOS 26.0, *)
 final class TabBarSegmentedControl: UISegmentedControl {
-  /// The segment index before touch began, used to restore on cancel and detect actual changes.
+  /// The segment selected at touch down, tracked for a glass preview or a native reselect.
   private var originalIndex: Int?
   private var isDeferringNativeActions = false
   private var ignoresRemainingTouchSequence = false
@@ -124,11 +124,11 @@ final class TabBarSegmentedControl: UISegmentedControl {
     }
   }
 
-  /// Cancel a finger-down preview without committing navigation when the
+  /// Cancel an in-progress touch without committing navigation when the
   /// surrounding layout or descriptor identity changes.
   func cancelInteraction() {
-    let pendingIndex = originalIndex
-    if originalIndex != nil || isDeferringNativeActions {
+    let pendingIndex = isDeferringNativeActions ? originalIndex : nil
+    if originalIndex != nil {
       ignoresRemainingTouchSequence = true
     }
     originalIndex = nil
@@ -624,10 +624,16 @@ final class TabBarSegmentedControl: UISegmentedControl {
       return
     }
     wakeAccentMasks()
+    let index = segmentIndex(at: touch.location(in: self))
     if shouldMoveIndicatorOnTouchDown {
       originalIndex = selectedSegmentIndex
       isDeferringNativeActions = true
-      selectedSegmentIndex = segmentIndex(at: touch.location(in: self))
+      selectedSegmentIndex = index
+    } else if index == selectedSegmentIndex, (0..<numberOfSegments).contains(index),
+              isEnabledForSegment(at: index) {
+      // Observe reselection without moving the lens or interrupting UIKit's
+      // large-content popover at accessibility text sizes.
+      originalIndex = index
     }
     super.touchesBegan(touches, with: event)
   }
@@ -639,8 +645,13 @@ final class TabBarSegmentedControl: UISegmentedControl {
       return
     }
     wakeAccentMasks()
-    if shouldMoveIndicatorOnTouchDown, originalIndex != nil {
-      selectedSegmentIndex = segmentIndex(at: touch.location(in: self))
+    if let startingIndex = originalIndex {
+      let point = touch.location(in: self)
+      if isDeferringNativeActions {
+        selectedSegmentIndex = segmentIndex(at: point)
+      } else if !bounds.contains(point) || segmentIndex(at: point) != startingIndex {
+        originalIndex = nil
+      }
     }
     super.touchesMoved(touches, with: event)
   }
@@ -651,25 +662,25 @@ final class TabBarSegmentedControl: UISegmentedControl {
       return
     }
     wakeAccentMasks()
-    guard let startingIndex = originalIndex, isDeferringNativeActions else {
-      super.touchesEnded(touches, with: event)
-      return
-    }
+    let defersNativeActions = isDeferringNativeActions
     // Let UIKit finish its lens interaction while suppressing its target
-    // callbacks, then commit the resulting value exactly once.
+    // callbacks when previewing, then commit the resulting value exactly once.
     super.touchesEnded(touches, with: event)
+    guard let startingIndex = originalIndex else { return }
     originalIndex = nil
     isDeferringNativeActions = false
-    if selectedSegmentIndex != startingIndex {
-      sendActions(for: .valueChanged)
-    } else {
-      onReselect?(selectedSegmentIndex)
+    if defersNativeActions {
+      if selectedSegmentIndex != startingIndex { sendActions(for: .valueChanged) }
+      else { onReselect?(startingIndex) }
+    } else if selectedSegmentIndex == startingIndex, let point = touches.first?.location(in: self),
+              bounds.contains(point), segmentIndex(at: point) == startingIndex {
+      onReselect?(startingIndex)
     }
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
     wakeAccentMasks()
-    let startingIndex = originalIndex
+    let startingIndex = isDeferringNativeActions ? originalIndex : nil
     super.touchesCancelled(touches, with: event)
     if let startingIndex { selectedSegmentIndex = startingIndex }
     originalIndex = nil
