@@ -162,19 +162,27 @@ FabBarTab(
 
 ### Tab Reselection
 
-Handle when users tap an already-selected tab (useful for scroll-to-top):
+Set `onReselect` on a `FabBarTab` to handle taps on that tab while it is
+already selected. To request scroll-to-top, increment a state counter in the
+callback.
 
 ```swift
+@State private var exploreScrollToTopTrigger = 0
+
+// In the FabBar tab configuration
 FabBarTab(
-    value: .home,
-    title: "Home",
-    systemImage: "house.fill",
+    value: .explore,
+    title: "Explore",
+    systemImage: "map.fill",
     onReselect: {
-        // User tapped this tab while it was already selected
-        scrollToTop()
+        exploreScrollToTopTrigger += 1
     }
 )
 ```
+
+The [example app](Example/FabBarExample/ContentView.swift) passes the counter
+to Explore, where `ScrollViewReader` scrolls to the first row when it changes.
+Open Explore, scroll down, and tap Explore again to try it.
 
 ### Conditional Visibility
 

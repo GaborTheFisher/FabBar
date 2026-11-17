@@ -18,6 +18,7 @@ struct ContentView: View {
   @State private var placement: FabBarPlacement = .automatic
   @State private var compactControls = false
   @State private var actionCount = 0
+  @State private var exploreScrollToTopTrigger = 0
   @Environment(\.verticalSizeClass) private var verticalSizeClass
 
   private var fabBarDensity: FabBarDensity {
@@ -39,7 +40,7 @@ struct ContentView: View {
         print("Reselected: home")
       }),
       FabBarTab(value: .explore, title: "Explore", systemImage: "map.fill", onReselect: {
-        print("Reselected: explore")
+        exploreScrollToTopTrigger += 1
       }),
       FabBarTab(value: .profile, title: "Profile", systemImage: "person.fill", onReselect: {
         print("Reselected: profile")
@@ -72,7 +73,7 @@ struct ContentView: View {
       }
       
       Tab("Explore", systemImage: "map.fill", value: AppTab.explore) {
-        ExploreTabView()
+        ExploreTabView(scrollToTopTrigger: exploreScrollToTopTrigger)
           .toolbarVisibility(tabBarVisibility, for: .tabBar)
       }
       
@@ -196,6 +197,8 @@ struct TabContentView: View {
 }
 
 struct ExploreTabView: View {
+  let scrollToTopTrigger: Int
+
   private let places = [
     ("San Francisco", "Golden Gate Bridge and tech hub"),
     ("New York", "The city that never sleeps"),
@@ -216,16 +219,24 @@ struct ExploreTabView: View {
   
   var body: some View {
     NavigationStack {
-      List(places, id: \.0) { place in
-        VStack(alignment: .leading) {
-          Text(place.0)
-            .font(.headline)
-          Text(place.1)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+      ScrollViewReader { proxy in
+        List(places, id: \.0) { place in
+          VStack(alignment: .leading) {
+            Text(place.0)
+              .font(.headline)
+            Text(place.1)
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+          }
+        }
+        .fabBarSafeAreaPadding()
+        .onChange(of: scrollToTopTrigger) {
+          guard let firstPlace = places.first else { return }
+          withAnimation {
+            proxy.scrollTo(firstPlace.0, anchor: .top)
+          }
         }
       }
-      .fabBarSafeAreaPadding()
       .navigationTitle("Explore")
     }
   }
